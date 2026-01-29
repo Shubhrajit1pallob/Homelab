@@ -1,0 +1,14 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: shubhrajit-dot-dev-cert
+  namespace: default # Or whichever namespace your nginx/test pods are in
+spec:
+  secretName: shubhrajit-pallob-tls # This is the name of the Secret cert-manager will CREATE
+  issuerRef:
+    name: cloudflare-clusterissuer # Name of the ClusterIssuer
+    kind: ClusterIssuer
+  commonName: shubhrajitpallob.dev
+  dnsNames:
+    - shubhrajitpallob.dev
+    - "*.shubhrajitpallob.dev" # This gets you a wildcard cert too!
