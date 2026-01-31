@@ -12,4 +12,4 @@ spec:
       targetPort: 9000
   selector:
     app: mealie-nginx
-  type: ClusterIP
+  type: LoadBalancer
