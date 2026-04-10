@@ -1,0 +1,162 @@
+# =============================================================
+# Logstash Deployment
+# - Receives logs from Filebeat (Beats input on port 5044)
+# - Enriches with Geo-IP for Kibana coordinate maps
+# - Outputs enriched logs to Elasticsearch
+# =============================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logstash-config
+  namespace: elk-siem
+data:
+  # Main Logstash pipeline config
+  logstash.conf: |
+    input {
+      beats {
+        port => 5044        # Filebeat ships logs here
+      }
+    }
+
+    filter {
+      # --- Geo-IP Enrichment ---
+      # Maps source.ip to lat/lon for Kibana coordinate map heatmap
+      if [source][ip] {
+        geoip {
+          source => "[source][ip]"
+          target => "[source][geo]"
+          fields => ["city_name", "country_name", "location", "region_name"]
+        }
+      }
+
+      # --- Parse auth.log SSH events ---
+      if [log][file][path] =~ "auth.log" {
+        grok {
+          match => {
+            "message" => [
+              # Failed password: sshd[pid]: Failed password for %{USER:user} from %{IP:source_ip}
+              "%{SYSLOGTIMESTAMP:timestamp} %{HOSTNAME:host_name} sshd\[%{POSINT}\]: %{DATA:event_outcome} password for %{USER:user} from %{IP:source_ip}",
+              # Invalid user attempts
+              "%{SYSLOGTIMESTAMP:timestamp} %{HOSTNAME:host_name} sshd\[%{POSINT}\]: Invalid user %{USER:user} from %{IP:source_ip}"
+            ]
+          }
+        }
+        # Map to ECS fields
+        mutate {
+          rename => { "source_ip" => "[source][ip]" }
+          add_field => {
+            "[event][category]" => "authentication"
+            "[event][type]"     => "start"
+          }
+        }
+        # Tag failed logins for Kibana auth failure trend chart
+        if [event_outcome] == "Failed" {
+          mutate {
+            add_field => { "[event][outcome]" => "failure" }
+            add_tag    => ["ssh_brute_force_candidate"]
+          }
+        } else {
+          mutate { add_field => { "[event][outcome]" => "success" } }
+        }
+      }
+
+      # --- Parse K8s audit logs ---
+      if [log][file][path] =~ "audit" {
+        json {
+          source => "message"
+          target => "k8s_audit"
+        }
+        mutate {
+          add_field => {
+            "[event][category]" => "audit"
+            "[event][dataset]"  => "kubernetes.audit"
+          }
+        }
+      }
+
+      # --- Remove noisy fields ---
+      mutate {
+        remove_field => ["agent", "ecs", "input", "log.offset"]
+      }
+    }
+
+    output {
+      elasticsearch {
+        hosts    => ["http://elasticsearch-svc:9200"]
+        index    => "siem-logs-%{+YYYY.MM.dd}"    # Daily rolling index
+        action   => "index"
+      }
+      # Uncomment to debug pipeline in pod logs:
+      # stdout { codec => rubydebug }
+    }
+
+  # Logstash JVM options
+  jvm.options: |
+    -Xms256m
+    -Xmx512m
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: logstash
+  namespace: elk-siem
+  labels:
+    app: logstash
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: logstash
+  template:
+    metadata:
+      labels:
+        app: logstash
+    spec:
+      containers:
+        - name: logstash
+          image: docker.elastic.co/logstash/logstash:8.11.0
+          ports:
+            - containerPort: 5044
+              name: beats
+            - containerPort: 9600
+              name: monitoring
+          env:
+            - name: LS_JAVA_OPTS
+              value: "-Xms256m -Xmx512m"
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+          volumeMounts:
+            - name: logstash-config
+              mountPath: /usr/share/logstash/pipeline/logstash.conf
+              subPath: logstash.conf
+      volumes:
+        - name: logstash-config
+          configMap:
+            name: logstash-config
+            items:
+              - key: logstash.conf
+                path: logstash.conf
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: logstash
+  namespace: elk-siem
+  labels:
+    app: logstash
+spec:
+  selector:
+    app: logstash
+  ports:
+    - name: beats
+      port: 5044
+      targetPort: 5044
+  type: ClusterIP

@@ -1,0 +1,41 @@
+server:
+  dataStorage:
+    enabled: true
+    size: 10Gi
+    storageClass: "longhorn" # Replace null with "longhorn"
+    accessMode: ReadWriteOnce
+
+  ui:
+    enabled: true
+    serviceType: "ClusterIP"
+
+  ha:
+    enabled: true
+    replicas: 3 # Standard for HA; ensures quorum
+    raft:
+      enabled: true
+      setNodeId: true
+      config: |
+        ui = true
+        listener "tcp" {
+          tls_disable = 1 # We will let Traefik handle TLS
+          address = "[::]:8200"
+          cluster_address = "[::]:8201"
+        }
+        storage "raft" {
+          path = "/vault/data"
+        }
+        service_registration "kubernetes" {}
+
+  ingress:
+    enabled: true
+    ingressClassName: "traefik"
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      cert-manager.io/cluster-issuer: "your-cluster-issuer-name" # Change this to yours
+    hosts:
+      - host: vault.yourdomain.com # Change this
+    tls:
+      - secretName: vault-tls-cert
+        hosts:
+          - vault.yourdomain.com

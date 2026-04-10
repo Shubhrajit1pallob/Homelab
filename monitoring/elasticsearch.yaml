@@ -1,0 +1,139 @@
+# =============================================================
+# Elasticsearch StatefulSet
+# - Uses K3s default Local Path Provisioner for storage
+# - Stable pod identity: es-0, es-1, etc.
+# - PVC auto-provisioned per replica via volumeClaimTemplates
+# =============================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch
+  namespace: elk-siem
+  labels:
+    app: elasticsearch
+spec:
+  clusterIP: None  # Headless service — required for StatefulSet DNS (es-0.elasticsearch, es-1.elasticsearch)
+  selector:
+    app: elasticsearch
+  ports:
+    - name: http
+      port: 9200
+      targetPort: 9200
+    - name: transport
+      port: 9300
+      targetPort: 9300
+
+---
+# External access service (for Kibana and Filebeat to reach ES)
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch-svc
+  namespace: elk-siem
+  labels:
+    app: elasticsearch
+spec:
+  selector:
+    app: elasticsearch
+  ports:
+    - name: http
+      port: 9200
+      targetPort: 9200
+  type: ClusterIP
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: elasticsearch
+  namespace: elk-siem
+  labels:
+    app: elasticsearch
+spec:
+  serviceName: elasticsearch          # Must match the headless Service name above
+  replicas: 1                         # Single node for homelab; increase to 3 for HA
+  selector:
+    matchLabels:
+      app: elasticsearch
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+    spec:
+      initContainers:
+        # Required: ES needs vm.max_map_count >= 262144 on the host
+        - name: increase-vm-max-map-count
+          image: busybox:1.35
+          command: ["sysctl", "-w", "vm.max_map_count=262144"]
+          securityContext:
+            privileged: true
+        # Fix permissions on the data directory
+        - name: fix-permissions
+          image: busybox:1.35
+          command: ["sh", "-c", "chown -R 1000:1000 /usr/share/elasticsearch/data"]
+          volumeMounts:
+            - name: es-data
+              mountPath: /usr/share/elasticsearch/data
+
+      containers:
+        - name: elasticsearch
+          image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+          env:
+            - name: discovery.type
+              value: "single-node"              # Change to zen2 discovery for multi-node HA
+            - name: ES_JAVA_OPTS
+              value: "-Xms512m -Xmx512m"        # Tune based on available RAM
+            - name: xpack.security.enabled
+              value: "false"                    # Disable for homelab; enable in production
+            - name: xpack.security.http.ssl.enabled
+              value: "false"
+            - name: xpack.security.transport.ssl.enabled
+              value: "false"
+            - name: cluster.name
+              value: "homelab-siem"
+            - name: node.name
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name      # Pod name becomes node name (es-0, es-1)
+          ports:
+            - containerPort: 9200
+              name: http
+            - containerPort: 9300
+              name: transport
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          volumeMounts:
+            - name: es-data
+              mountPath: /usr/share/elasticsearch/data
+          readinessProbe:
+            httpGet:
+              path: /_cluster/health?local=true
+              port: 9200
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /_cluster/health?local=true
+              port: 9200
+            initialDelaySeconds: 60
+            periodSeconds: 20
+
+  # volumeClaimTemplates: K3s Local Path Provisioner dynamically creates a PV
+  # on the host node at /var/lib/rancher/k3s/storage/<pvc-name>
+  # Each pod replica gets its own PVC: es-data-elasticsearch-0, es-data-elasticsearch-1
+  volumeClaimTemplates:
+    - metadata:
+        name: es-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: "local-path"    # K3s default StorageClass
+        resources:
+          requests:
+            storage: 10Gi

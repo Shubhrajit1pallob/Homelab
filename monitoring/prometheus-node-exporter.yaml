@@ -1,0 +1,356 @@
+# =============================================================
+# node-exporter DaemonSet
+# - One pod per node (DaemonSet guarantees this)
+# - Exposes host metrics: CPU, memory, disk, network
+# - Prometheus scrapes via Kubernetes Service Discovery
+# =============================================================
+
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-exporter
+  namespace: elk-siem
+  labels:
+    app: node-exporter
+spec:
+  selector:
+    matchLabels:
+      app: node-exporter
+  template:
+    metadata:
+      labels:
+        app: node-exporter
+      annotations:
+        # Prometheus auto-scrape annotation (used if NOT using Prometheus Operator)
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9100"
+        prometheus.io/path: "/metrics"
+    spec:
+      hostPID: true       # Required: access host process namespace for CPU/mem metrics
+      hostIPC: true
+      hostNetwork: true   # Access host network interfaces
+      containers:
+        - name: node-exporter
+          image: prom/node-exporter:v1.7.0
+          args:
+            - "--path.procfs=/host/proc"
+            - "--path.sysfs=/host/sys"
+            - "--path.rootfs=/host/root"
+            - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+          ports:
+            - containerPort: 9100
+              name: metrics
+              hostPort: 9100
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "50m"
+            limits:
+              memory: "64Mi"
+              cpu: "100m"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534    # nobody
+          volumeMounts:
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: sys
+              mountPath: /host/sys
+              readOnly: true
+            - name: root
+              mountPath: /host/root
+              readOnly: true
+              mountPropagation: HostToContainer
+
+      tolerations:
+        # Run on ALL nodes including control-plane
+        - key: node-role.kubernetes.io/control-plane
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          effect: NoSchedule
+
+      volumes:
+        - name: proc
+          hostPath:
+            path: /proc
+        - name: sys
+          hostPath:
+            path: /sys
+        - name: root
+          hostPath:
+            path: /
+            type: Directory
+
+---
+# Service for node-exporter — Prometheus SD finds this by label
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-exporter
+  namespace: elk-siem
+  labels:
+    app: node-exporter     # Prometheus ServiceMonitor selector matches this label
+spec:
+  selector:
+    app: node-exporter
+  ports:
+    - name: metrics
+      port: 9100
+      targetPort: 9100
+  type: ClusterIP
+  clusterIP: None          # Headless — returns individual pod IPs for scraping each node
+
+---
+# =============================================================
+# Prometheus Deployment
+# - Scrapes node-exporter and kube-state-metrics
+# - Key metrics: node_memory_MemAvailable_bytes,
+#   kube_pod_container_status_restarts_total (OOMKills)
+# =============================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: elk-siem
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s        # How often to scrape targets
+      evaluation_interval: 15s    # How often to evaluate rules
+
+    rule_files:
+      - /etc/prometheus/rules/*.yml
+
+    scrape_configs:
+
+      # --- node-exporter: host metrics ---
+      - job_name: 'node-exporter'
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names: ['elk-siem']
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_label_app]
+            action: keep
+            regex: node-exporter
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            target_label: node
+
+      # --- Kubernetes API server ---
+      - job_name: 'kubernetes-apiservers'
+        kubernetes_sd_configs:
+          - role: endpoints
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: default;kubernetes;https
+
+      # --- Kubernetes nodes (kubelet metrics) ---
+      - job_name: 'kubernetes-nodes'
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+
+      # --- Pods with prometheus.io/scrape annotation ---
+      - job_name: 'kubernetes-pods'
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: "true"
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+
+  # Alert rules — node exhaustion
+  node-alerts.yml: |
+    groups:
+      - name: node-exhaustion
+        rules:
+
+          # Memory exhaustion alert
+          # node_memory_MemAvailable_bytes: unlike MemFree, accounts for reclaimable cache
+          - alert: NodeMemoryExhaustion
+            expr: |
+              (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 < 10
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Node memory exhaustion on {{ $labels.node }}"
+              description: "Available memory is {{ $value | printf \"%.1f\" }}% — OOMKills likely imminent."
+
+          # OOMKill detection via pod restarts
+          - alert: PodOOMKilled
+            expr: |
+              increase(kube_pod_container_status_restarts_total[5m]) > 0
+            for: 1m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Pod {{ $labels.pod }} restarted (possible OOMKill)"
+              description: "Container {{ $labels.container }} in {{ $labels.namespace }} restarted. Check for OOM."
+
+          # CPU saturation
+          - alert: NodeCPUSaturation
+            expr: |
+              100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 90
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High CPU on {{ $labels.instance }}"
+              description: "CPU usage is {{ $value | printf \"%.1f\" }}%."
+
+          # Disk almost full
+          - alert: NodeDiskAlmostFull
+            expr: |
+              (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 15
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Disk space low on {{ $labels.instance }}"
+              description: "Only {{ $value | printf \"%.1f\" }}% disk remaining."
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: elk-siem
+
+---
+# ClusterRole: Prometheus needs to read K8s resource metadata for service discovery
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus
+rules:
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - nodes/proxy
+      - services
+      - endpoints
+      - pods
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["extensions", "networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch"]
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus
+subjects:
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: elk-siem
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: elk-siem
+  labels:
+    app: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      serviceAccountName: prometheus
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.48.0
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--storage.tsdb.path=/prometheus"
+            - "--storage.tsdb.retention.time=15d"
+            - "--web.enable-lifecycle"          # Allows config reload via POST /-/reload
+          ports:
+            - containerPort: 9090
+              name: http
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          volumeMounts:
+            - name: prometheus-config
+              mountPath: /etc/prometheus/prometheus.yml
+              subPath: prometheus.yml
+            - name: alert-rules
+              mountPath: /etc/prometheus/rules/node-alerts.yml
+              subPath: node-alerts.yml
+            - name: prometheus-data
+              mountPath: /prometheus
+
+      volumes:
+        - name: prometheus-config
+          configMap:
+            name: prometheus-config
+            items:
+              - key: prometheus.yml
+                path: prometheus.yml
+        - name: alert-rules
+          configMap:
+            name: prometheus-config
+            items:
+              - key: node-alerts.yml
+                path: node-alerts.yml
+        - name: prometheus-data
+          emptyDir: {}    # Replace with PVC for persistent metrics storage
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: elk-siem
+  labels:
+    app: prometheus
+spec:
+  selector:
+    app: prometheus
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+      nodePort: 30909
+  type: NodePort

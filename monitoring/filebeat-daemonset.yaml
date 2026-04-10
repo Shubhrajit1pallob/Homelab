@@ -1,0 +1,202 @@
+# =============================================================
+# Filebeat DaemonSet
+# - Runs one pod per node (guaranteed by DaemonSet)
+# - Scrapes: container logs (/var/log/pods/), auth.log,
+#            syslog, and K8s audit logs
+# - Ships to Logstash for enrichment
+# =============================================================
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: filebeat
+  namespace: elk-siem
+  labels:
+    app: filebeat
+
+---
+# ClusterRole: Filebeat needs to read pod metadata for log enrichment
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: filebeat
+  labels:
+    app: filebeat
+rules:
+  - apiGroups: [""]
+    resources:
+      - namespaces
+      - pods
+      - nodes
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: filebeat
+  labels:
+    app: filebeat
+subjects:
+  - kind: ServiceAccount
+    name: filebeat
+    namespace: elk-siem
+roleRef:
+  kind: ClusterRole
+  name: filebeat
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-config
+  namespace: elk-siem
+data:
+  filebeat.yml: |
+    filebeat.autodiscover:
+      providers:
+        - type: kubernetes
+          node: ${NODE_NAME}
+          hints.enabled: true        # Auto-detect container log formats
+          hints.default_config:
+            type: container
+            paths:
+              - /var/log/pods/${data.kubernetes.namespace}_${data.kubernetes.pod.name}_${data.kubernetes.pod.uid}/*/*.log
+
+    filebeat.inputs:
+      # --- Host syslog ---
+      - type: log
+        enabled: true
+        paths:
+          - /var/log/syslog
+          - /var/log/messages
+        fields:
+          log_type: syslog
+        fields_under_root: true
+
+      # --- SSH auth log (SIEM core use case) ---
+      - type: log
+        enabled: true
+        paths:
+          - /var/log/auth.log
+        fields:
+          log_type: auth
+        fields_under_root: true
+        multiline.pattern: '^[A-Z]'
+        multiline.negate: true
+        multiline.match: after
+
+      # --- K8s API audit logs ---
+      - type: log
+        enabled: true
+        paths:
+          - /var/log/kubernetes/audit/*.log
+        fields:
+          log_type: k8s_audit
+        fields_under_root: true
+        json.keys_under_root: true
+        json.add_error_key: true
+
+    # Add Kubernetes metadata to every event (pod name, namespace, labels)
+    processors:
+      - add_kubernetes_metadata:
+          host: ${NODE_NAME}
+          matchers:
+            - logs_path:
+                logs_path: "/var/log/pods/"
+      - add_host_metadata:
+          when.not.contains.tags: forwarded
+
+    # Ship to Logstash for Geo-IP enrichment and parsing
+    output.logstash:
+      hosts: ["logstash:5044"]
+
+    # Logging
+    logging.level: info
+    logging.to_files: true
+    logging.files:
+      path: /var/log/filebeat
+      name: filebeat
+      keepfiles: 7
+
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: filebeat
+  namespace: elk-siem
+  labels:
+    app: filebeat
+spec:
+  selector:
+    matchLabels:
+      app: filebeat
+  template:
+    metadata:
+      labels:
+        app: filebeat
+    spec:
+      serviceAccountName: filebeat
+      terminationGracePeriodSeconds: 30
+      hostNetwork: true           # Access host network for syslog/auth.log
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: filebeat
+          image: docker.elastic.co/beats/filebeat:8.11.0
+          args: ["-c", "/etc/filebeat.yml", "-e"]
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          securityContext:
+            runAsUser: 0           # Required to read /var/log/pods/
+            privileged: false
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/filebeat.yml
+              subPath: filebeat.yml
+              readOnly: true
+            - name: data
+              mountPath: /usr/share/filebeat/data
+            - name: varlogs
+              mountPath: /var/log
+              readOnly: true
+            - name: varlogpods
+              mountPath: /var/log/pods
+              readOnly: true
+            - name: varlogcontainers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+
+      volumes:
+        - name: config
+          configMap:
+            name: filebeat-config
+            defaultMode: 0600
+        - name: data
+          hostPath:
+            path: /var/lib/filebeat-data
+            type: DirectoryOrCreate
+        - name: varlogs
+          hostPath:
+            path: /var/log
+        - name: varlogpods
+          hostPath:
+            path: /var/log/pods
+        - name: varlogcontainers
+          hostPath:
+            path: /var/lib/docker/containers

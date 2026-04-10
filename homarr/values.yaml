@@ -1,0 +1,39 @@
+persistence:
+  homarrDatabase:
+    enabled: true
+    storageClassName: "local-path"
+    accessMode: "ReadWriteOnce"
+    size: "1Gi"
+    mountPath: "/appdata"
+
+service:
+  type: ClusterIP
+  ports:
+    app:
+      port: 7575
+      targetPort: http
+
+ingress:
+  enabled: true
+  ingressClassName: "traefik"
+  annotations:
+    cert-manager.io/cluster-issuer: cloudflare-clusterissuer
+  hosts:
+    - host: homarr.shubhrajitpallob.dev
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: homarr-tls
+      hosts:
+        - homarr.shubhrajitpallob.dev
+
+ivenessProbe:
+  initialDelaySeconds: 30
+  timeoutSeconds: 5
+  periodSeconds: 10
+
+readinessProbe:
+  initialDelaySeconds: 30
+  timeoutSeconds: 5
+  periodSeconds: 10

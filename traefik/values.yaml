@@ -1,6 +1,11 @@
 service:
   type: LoadBalancer
-  loadBalancerIP: "192.168.12.201"
+  loadBalancerIP: "192.168.12.200"
+
+ingressClass:
+  enabled: true
+  isDefaultClass: true
+
 ports:
   web:
     port: 8000
@@ -13,12 +18,12 @@ ports:
           to: websecure
           scheme: https
           permanent: true
-
   websecure:
     port: 8443
     exposedPort: 443
     expose:
       default: true
-    #http:
-    #middlewares:
-    #- auth@kubernetescrd
+    # http.tls is enabled by default — no need to add anything here
+    # http:
+    #   middlewares:
+    #   - auth@kubernetescrd

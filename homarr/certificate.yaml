@@ -1,0 +1,13 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: homarr-cert
+  namespace: homarr # <--- This is the key change
+spec:
+  secretName: shubhrajit-pallob-tls
+  issuerRef:
+    name: cloudflare-clusterissuer
+    kind: ClusterIssuer # ClusterIssuers are visible to all namespaces!
+  commonName: homarr.shubhrajitpallob.dev
+  dnsNames:
+    - homarr.shubhrajitpallob.dev

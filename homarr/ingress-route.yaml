@@ -1,0 +1,16 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: homarr-web-route
+  namespace: homarr
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`homarr.shubhrajitpallob.dev`)
+      kind: Rule
+      services:
+        - name: homarr
+          port: 7575
+  tls:
+    secretName: shubhrajit-pallob-tls
