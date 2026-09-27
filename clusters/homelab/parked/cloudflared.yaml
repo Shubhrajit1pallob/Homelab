@@ -1,0 +1,27 @@
+# PARKED - do not enable until the tunnel cutover is planned.
+# The `k8s_cloud` tunnel's published routes point at http://localhost:80, which only works for the connector
+# running on the shubmedia host. An in-cluster connector using the same token would join the tunnel and
+# Cloudflare would send it about half the traffic, where `localhost` is the pod itself -> intermittent 502s.
+# Cutover (needed so the public site survives shubmedia going offline): change every route's service to
+# http://traefik.kube-system.svc.cluster.local:80, run this in-cluster (pinned to the always-on node), and
+# retire the host connector in the same step. The Deployment also needs `tunnel-token` in kube-system.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudflared
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Shubhrajit1pallob/Homelab.git
+    targetRevision: main
+    path: infrastructure/cloudflared
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

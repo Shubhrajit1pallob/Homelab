@@ -1,0 +1,99 @@
+# Dashboard ConfigMap loaded by Grafana's sidecar container.
+# The sidecar watches for ConfigMaps with label grafana_dashboard: "1" across
+# ALL namespaces (configured via grafana.sidecar.dashboards.searchNamespace: ALL
+# in values.yaml for the kube-prometheus-stack chart).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-node-exhaustion
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  node-exhaustion.json: |
+    {
+      "title": "Node Exhaustion Monitor",
+      "uid": "node-exhaustion",
+      "schemaVersion": 38,
+      "refresh": "30s",
+      "panels": [
+        {
+          "id": 1,
+          "title": "Available Memory % (node_memory_MemAvailable_bytes)",
+          "type": "timeseries",
+          "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+          "targets": [
+            {
+              "expr": "(node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100",
+              "legendFormat": "Available Memory % - {{instance}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "max": 100,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "yellow", "value": 20 },
+                  { "color": "green", "value": 40 }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": 2,
+          "title": "CPU Usage % (idle inverted)",
+          "type": "gauge",
+          "gridPos": { "x": 12, "y": 0, "w": 6, "h": 8 },
+          "targets": [
+            {
+              "expr": "100 - (avg by(instance) (rate(node_cpu_seconds_total{mode='idle'}[5m])) * 100)",
+              "legendFormat": "CPU % - {{instance}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": 3,
+          "title": "Pod Restarts (OOMKill indicator)",
+          "description": "Sudden restart = likely OOMKill. Correlate with memory graph.",
+          "type": "timeseries",
+          "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+          "targets": [
+            {
+              "expr": "increase(kube_pod_container_status_restarts_total[5m])",
+              "legendFormat": "{{pod}} / {{container}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "title": "Disk Available %",
+          "type": "timeseries",
+          "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+          "targets": [
+            {
+              "expr": "(node_filesystem_avail_bytes{mountpoint='/'} / node_filesystem_size_bytes{mountpoint='/'}) * 100",
+              "legendFormat": "Disk Available % - {{instance}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": { "unit": "percent", "min": 0, "max": 100 }
+          }
+        }
+      ]
+    }

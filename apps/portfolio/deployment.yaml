@@ -1,0 +1,138 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portfolio
+  namespace: portfolio
+  labels:
+    app.kubernetes.io/name: portfolio
+    app.kubernetes.io/component: web
+spec:
+  # Two replicas rather than two gunicorn workers in one Pod, so a Pod restart never drops the site.
+  replicas: 2
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: portfolio
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0   # never drop below 2 ready Pods during a rollout
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: portfolio
+        app.kubernetes.io/component: web
+    spec:
+      # The site never calls the Kubernetes API, so it has no business holding a ServiceAccount token.
+      automountServiceAccountToken: false
+
+      # No imagePullSecrets: the GHCR package is public. If it is ever made private, create a `ghcr-pull`
+      # docker-registry secret in this namespace and add it back here.
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+
+      # REQUIRED, not preferred: only nodes labelled node-role=cloud may run the public site. shubmedia is a
+      # laptop that will go offline, and server-1 is tainted, so today this means agent-1 only. When a
+      # replacement always-on node joins, label it too: kubectl label node <name> node-role=cloud
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role
+                    operator: In
+                    values: ["cloud"]
+
+      # Spread across the cloud nodes when there is more than one; harmless with a single node.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: portfolio
+
+      containers:
+        - name: portfolio
+          # Pinned to the immutable tag CI publishes for each commit (sha-<full commit>), so every deploy is a
+          # reviewable change here and can be rolled back. To release: take the new tag from the portfolio
+          # repo's CI, update this line and APP_VERSION below, then commit.
+          image: ghcr.io/shubhrajit1pallob/portfolio_website:sha-898ea70108033f31ea0108cdf4b5be1415b9b3fc
+          imagePullPolicy: IfNotPresent # safe because the tag is immutable
+
+          ports:
+            - name: http
+              containerPort: 8000
+            - name: metrics
+              containerPort: 9090
+
+          env:
+            - name: SITE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: portfolio-config
+                  key: SITE_URL
+            - name: METRICS_PORT
+              value: "9090"
+            # Surfaced as a label on the portfolio_app_info metric so a dashboard can tell which build serves.
+            - name: APP_VERSION
+              value: "sha-898ea70"
+
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 2
+            failureThreshold: 15
+
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 2
+
+          resources:
+            requests:
+              cpu: 50m
+              memory: 80Mi
+            limits:
+              # No CPU limit on purpose (single-core node: a limit only buys throttling). The memory limit
+              # is the one that matters - it stops a leak from taking the node down.
+              memory: 192Mi
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+          volumeMounts:
+            # Gunicorn writes worker heartbeat files and the root filesystem is read-only.
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+
+      # Must exceed gunicorn's graceful_timeout (25s) so in-flight requests finish before SIGKILL.
+      terminationGracePeriodSeconds: 30

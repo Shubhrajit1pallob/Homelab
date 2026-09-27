@@ -1,0 +1,36 @@
+# PARKED. Enable by moving this file into clusters/homelab/applications/ (your commit).
+# Prerequisites: create the namespace and the Grafana admin secret first, e.g.
+#   kubectl create namespace monitoring
+#   kubectl -n monitoring create secret generic grafana-admin \
+#     --from-literal=admin-user=admin --from-literal=admin-password=<read it silently, don't paste in chat>
+# Expected cost: roughly 1 GiB of RAM on shubmedia. Enable AFTER the portfolio, one app at a time.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: default
+  sources:
+    - repoURL: https://prometheus-community.github.io/helm-charts
+      chart: kube-prometheus-stack
+      targetRevision: 91.7.0
+      helm:
+        releaseName: kube-prometheus-stack
+        valueFiles:
+          - $values/apps/monitoring/prometheus/values.yaml
+    - repoURL: https://github.com/Shubhrajit1pallob/Homelab.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true # the operator CRDs are far larger than the client-side apply limit

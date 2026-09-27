@@ -1,0 +1,10 @@
+# Makes the wildcard cert Traefik's default, so an app only needs `tls: {}` on its IngressRoute
+# (or a bare `tls:` entry on an Ingress) - no per-app Certificate resource.
+apiVersion: traefik.io/v1alpha1
+kind: TLSStore
+metadata:
+  name: default
+  namespace: kube-system
+spec:
+  defaultCertificate:
+    secretName: shubhrajitpallob-dev-wildcard-tls

@@ -2,3 +2,6 @@
 
 vault/cluster-keys.json
 *.json
+
+# Plaintext secrets - create these in-cluster with kubectl instead
+apps/postgres/secrets.yaml

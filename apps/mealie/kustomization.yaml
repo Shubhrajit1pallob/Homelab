@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - mealie-namespace.yaml
+  - storage.yaml
+  - mealie-deployment.yaml
+  - mealie-service.yaml
+  - mealie-certificate.yaml
+  - mealie-ingress-route.yaml

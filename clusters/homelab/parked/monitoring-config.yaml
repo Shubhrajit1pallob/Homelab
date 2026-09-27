@@ -1,0 +1,31 @@
+# PARKED. Move into applications/ together with (or after) kube-prometheus-stack.yaml.
+# Holds the alert rule, dashboard, ServiceMonitor and Grafana routes. They use CRDs installed by the
+# stack, so this must sync after it (wave 3 + retry).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Shubhrajit1pallob/Homelab.git
+    targetRevision: main
+    path: apps/monitoring/prometheus
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

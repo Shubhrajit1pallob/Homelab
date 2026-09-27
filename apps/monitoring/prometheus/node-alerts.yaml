@@ -1,0 +1,53 @@
+# PrometheusRule — Prometheus Operator picks this up automatically.
+# ruleSelector: {} in values.yaml means no label filter is applied,
+# so this rule is loaded regardless of which release chart name is set.
+# Relies on node-exporter metrics, which is why node-exporter also runs on the tainted server-1.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: node-exhaustion-alerts
+  namespace: monitoring
+spec:
+  groups:
+    - name: node-exhaustion
+      rules:
+        - alert: NodeMemoryExhaustion
+          expr: |
+            (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 < 10
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Node memory exhaustion on {{ $labels.node }}"
+            description: "Available memory is {{ $value | printf \"%.1f\" }}% — OOMKills likely imminent."
+
+        - alert: PodOOMKilled
+          # kube-state-metrics (enabled in values.yaml) provides this metric
+          expr: |
+            increase(kube_pod_container_status_restarts_total[5m]) > 0
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod {{ $labels.pod }} restarted (possible OOMKill)"
+            description: "Container {{ $labels.container }} in {{ $labels.namespace }} restarted. Check for OOM."
+
+        - alert: NodeCPUSaturation
+          expr: |
+            100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 90
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High CPU on {{ $labels.instance }}"
+            description: "CPU usage is {{ $value | printf \"%.1f\" }}%."
+
+        - alert: NodeDiskAlmostFull
+          expr: |
+            (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 15
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Disk space low on {{ $labels.instance }}"
+            description: "Only {{ $value | printf \"%.1f\" }}% disk remaining."

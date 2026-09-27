@@ -1,0 +1,9 @@
+# Synced by clusters/homelab/parked/monitoring-config.yaml. The chart itself (and the `monitoring`
+# namespace) come from kube-prometheus-stack.yaml; values are in values.yaml here.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - node-alerts.yaml
+  - dashboard-configmap.yaml
+  - portfolio-servicemonitor.yaml
+  - grafana-route.yaml

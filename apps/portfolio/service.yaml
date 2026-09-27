@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: portfolio
+  namespace: portfolio
+  labels:
+    app.kubernetes.io/name: portfolio
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: portfolio
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+    # Scraped by the ServiceMonitor in apps/monitoring/prometheus. The Ingress never routes this port.
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: portfolio-config
+  namespace: portfolio
+data:
+  # Drives canonical URLs, og:image and sitemap.xml. Must match the hostname the site is actually served on.
+  SITE_URL: "https://shubhrajitpallob.dev"
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: portfolio
+  namespace: portfolio
+spec:
+  # Refuses to let both replicas go at once. NOTE: while both replicas share the single always-on node,
+  # this also blocks `kubectl drain` of that node; add the second cloud node before doing maintenance.
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: portfolio

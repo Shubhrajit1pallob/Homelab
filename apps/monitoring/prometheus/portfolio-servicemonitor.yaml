@@ -1,0 +1,19 @@
+# Scrapes the portfolio's Prometheus metrics (port 9090, never exposed by the site's route).
+# The portfolio's own Deployment annotations only work with a plain Prometheus; with kube-prometheus-stack a
+# ServiceMonitor is the way. The portfolio NetworkPolicy already allows the `monitoring` namespace to port 9090.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: portfolio
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - portfolio
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: portfolio
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 60s

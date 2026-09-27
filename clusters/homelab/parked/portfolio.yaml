@@ -1,0 +1,24 @@
+# PARKED. Enable by moving this file into clusters/homelab/applications/ (your commit).
+# Prerequisite: label the always-on node so the required node affinity can match:
+#   kubectl label node agent-1 node-role=cloud
+# The manifests live in this repo (apps/portfolio); the website repo only builds and publishes the image.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: portfolio
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Shubhrajit1pallob/Homelab.git
+    targetRevision: main
+    path: apps/portfolio
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: portfolio
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

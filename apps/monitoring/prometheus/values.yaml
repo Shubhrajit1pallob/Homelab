@@ -1,0 +1,124 @@
+# Values for kube-prometheus-stack (Helm chart 91.7.0), consumed by
+# clusters/homelab/parked/kube-prometheus-stack.yaml through its `$values` source.
+#
+# Sized for a 3-node K3s cluster with ~5.5 GiB free RAM across the two workers: server-1 is tainted and
+# nearly full, agent-1 has a single vCPU, and shubmedia (4 CPU, laptop) hosts the heavy pieces.
+# When shubmedia is replaced, change every `kubernetes.io/hostname: shubmedia` selector below.
+
+alertmanager:
+  enabled: false
+
+# K3s runs these control-plane components inside the k3s process and does not expose them as scrapeable
+# endpoints, so their targets would sit permanently "down" and their default rules would be noise.
+kubeEtcd:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeProxy:
+  enabled: false
+defaultRules:
+  rules:
+    etcd: false
+    kubeControllerManager: false
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+    kubeProxy: false
+
+prometheusOperator:
+  resources:
+    requests: {cpu: 30m, memory: 64Mi}
+    limits: {memory: 128Mi}
+
+prometheus:
+  prometheusSpec:
+    scrapeInterval: 60s # default is 30s; halving the sample rate roughly halves memory and disk use
+    evaluationInterval: 60s
+    retention: 7d
+    retentionSize: 4GB # hard cap, below the 5Gi volume so it can never fill the disk
+    nodeSelector:
+      kubernetes.io/hostname: shubmedia
+    resources:
+      requests: {cpu: 100m, memory: 300Mi}
+      # No CPU limit on purpose: throttling a scrape/compaction burst helps nobody here.
+      limits: {memory: 768Mi}
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 5Gi
+
+    # Pick up our own PrometheusRule / ServiceMonitor objects regardless of Helm release labels.
+    ruleSelector: {}
+    ruleSelectorNilUsesHelmValues: false
+    ruleNamespaceSelector: {}
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorNamespaceSelector: {}
+    podMonitorSelectorNilUsesHelmValues: false
+    podMonitorNamespaceSelector: {}
+
+kubeStateMetrics:
+  enabled: true
+kube-state-metrics:
+  resources:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {memory: 96Mi}
+
+nodeExporter:
+  enabled: true
+prometheus-node-exporter:
+  # Deliberately runs on the tainted control-plane node too: server-1 is the tightest node (~64% memory
+  # used) and node-alerts.yaml alerts on node memory, so it is the one host we most need metrics for.
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      effect: NoSchedule
+    - key: node-role.kubernetes.io/master
+      effect: NoSchedule
+  resources:
+    requests: {cpu: 10m, memory: 16Mi}
+    limits: {memory: 48Mi}
+  extraArgs:
+    - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($|/)
+
+grafana:
+  # The admin login comes from a Secret created by hand (never commit a password here):
+  #   kubectl -n monitoring create secret generic grafana-admin \
+  #     --from-literal=admin-user=admin --from-literal=admin-password=...
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  nodeSelector:
+    kubernetes.io/hostname: shubmedia
+  # With a ReadWriteOnce volume a rolling update would wait forever for the old pod to release it.
+  deploymentStrategy:
+    type: Recreate
+  persistence:
+    enabled: true
+    type: pvc
+    storageClassName: local-path
+    accessModes: ["ReadWriteOnce"]
+    size: 1Gi
+  service:
+    type: ClusterIP # exposed through Traefik (see grafana-route.yaml), not a NodePort
+  resources:
+    requests: {cpu: 50m, memory: 100Mi}
+    limits: {memory: 256Mi}
+  grafana.ini:
+    server:
+      # Grafana builds redirects and links from this. It is the public (Cloudflare Access) hostname.
+      root_url: https://grafana.shubhrajitpallob.dev
+  # Sidecar hot-loads any ConfigMap labelled grafana_dashboard: "1" from every namespace.
+  sidecar:
+    resources:
+      requests: {cpu: 10m, memory: 32Mi}
+      limits: {memory: 96Mi}
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL

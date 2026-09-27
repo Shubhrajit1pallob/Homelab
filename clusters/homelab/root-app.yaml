@@ -1,0 +1,21 @@
+# Bootstrap once with:  kubectl apply -f clusters/homelab/root-app.yaml
+# App-of-apps: ArgoCD watches clusters/homelab/applications/ and creates one Application per file.
+# To enable a component, add its Application file there; to park it, leave it out (or move it away).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Shubhrajit1pallob/Homelab.git
+    targetRevision: main
+    path: clusters/homelab/applications
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

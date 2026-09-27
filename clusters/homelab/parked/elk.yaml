@@ -1,0 +1,22 @@
+# PARKED - DO NOT ENABLE on the current hardware.
+# Requests alone add up to ~2.6 GiB (Elasticsearch 1Gi, Kibana 512Mi, Logstash 512Mi, Filebeat 3 x 128Mi)
+# and limits to ~4.3 GiB, against ~5.5 GiB free across the two worker nodes. It would starve everything else.
+# Manual sync only (no `automated`), so even after being moved into applications/ nothing deploys until
+# someone presses Sync. Revisit only with a dedicated larger node.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: elk
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Shubhrajit1pallob/Homelab.git
+    targetRevision: main
+    path: apps/monitoring/ELK
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: elk-siem
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true

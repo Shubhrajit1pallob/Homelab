@@ -1,0 +1,35 @@
+# ArgoCD web UI. argocd-server runs with server.insecure=true (plain HTTP on :80),
+# so Traefik terminates TLS. Two routes for the same host:
+#  - websecure + TLS: direct access over Tailscale (wildcard cert from the default TLSStore)
+#  - web (plain HTTP): the origin the Cloudflare tunnel connects to; Cloudflare terminates TLS
+#    at its edge and Cloudflare Access does the login there.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: argocd-server
+  namespace: argocd
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`argocd.shubhrajitpallob.dev`)
+      services:
+        - name: argocd-server
+          port: 80
+  tls: {}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: argocd-server-http
+  namespace: argocd
+spec:
+  entryPoints:
+    - web
+  routes:
+    - kind: Rule
+      match: Host(`argocd.shubhrajitpallob.dev`)
+      services:
+        - name: argocd-server
+          port: 80
