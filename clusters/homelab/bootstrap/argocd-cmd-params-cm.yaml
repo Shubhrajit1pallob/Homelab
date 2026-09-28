@@ -1,0 +1,16 @@
+# NOT synced by ArgoCD (applied by hand, see README). Keeps server.insecure while adding concurrency
+# limits so the controller/repo-server/kubectl calls stay within what the 1-vCPU server-1 can handle.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cmd-params-cm
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-cmd-params-cm
+    app.kubernetes.io/part-of: argocd
+data:
+  server.insecure: "true"
+  controller.status.processors: "5"
+  controller.operation.processors: "3"
+  controller.kubectl.parallelism.limit: "5"
+  reposerver.parallelism.limit: "2"

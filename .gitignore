@@ -5,3 +5,10 @@ vault/cluster-keys.json
 
 # Plaintext secrets - create these in-cluster with kubectl instead
 apps/postgres/secrets.yaml
+
+# Terraform (SOC lab AWS side) - state and var files can hold secrets
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+crash.log

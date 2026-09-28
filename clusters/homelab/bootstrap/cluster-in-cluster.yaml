@@ -1,0 +1,17 @@
+# NOT synced by ArgoCD (applied by hand, see README). Limits the controller's in-cluster cache to the
+# argocd and portfolio namespaces; clusterResources is "true" because apps/portfolio includes a Namespace.
+# After applying, check argocd-application-controller logs for in-cluster auth errors.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cluster-in-cluster
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: cluster
+type: Opaque
+stringData:
+  name: in-cluster
+  server: https://kubernetes.default.svc
+  config: '{"tlsClientConfig":{"insecure":false}}'
+  namespaces: "argocd,portfolio"
+  clusterResources: "true"
