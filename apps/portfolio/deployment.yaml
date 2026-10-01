@@ -64,7 +64,7 @@ spec:
           # Pinned to the immutable tag CI publishes for each commit (sha-<full commit>), so every deploy is a
           # reviewable change here and can be rolled back. To release: take the new tag from the portfolio
           # repo's CI, update this line and APP_VERSION below, then commit.
-          image: ghcr.io/shubhrajit1pallob/portfolio_website:sha-c67d6c7624cb47710e20a4cad6905e8b1c3d1cd1
+          image: ghcr.io/shubhrajit1pallob/portfolio_website:sha-236c3f2c3b7229cbd65fd576a95c309b147144ae
           imagePullPolicy: IfNotPresent # safe because the tag is immutable
 
           ports:
@@ -83,7 +83,7 @@ spec:
               value: "9090"
             # Surfaced as a label on the portfolio_app_info metric so a dashboard can tell which build serves.
             - name: APP_VERSION
-              value: "sha-c67d6c7"
+              value: "sha-236c3f2"
 
           startupProbe:
             httpGet:
