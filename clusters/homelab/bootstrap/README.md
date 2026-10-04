@@ -77,6 +77,13 @@ enabling such an Application:
 2. Apply it by hand: `kubectl apply -f clusters/homelab/bootstrap/cluster-in-cluster.yaml`
 3. Then enable the Application (move its file from `parked/` into `applications/`).
 
+## Enabling or parking an Application
+
+- Move the file with `git mv` (or `git add -A <dir>`) and check `git status` before pushing. A plain `mv`
+  followed by `git commit -a` commits only the deletion (this happened on 2026-10-04).
+- After changing a file in `clusters/homelab/applications/`, hard-refresh the `root` app, not the child
+  app: the child keeps its old spec until root syncs.
+
 ## Files
 
 - `cluster-in-cluster.yaml` — restricts the in-cluster server to a fixed list of namespaces (see Namespace scope).

@@ -46,14 +46,16 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
   Adding a new directory requires a new Application file.
 - Ordering uses sync waves (cert-manager wave 0 first). Applications that use CRDs installed by another chart
   (`cert-manager-config`, `monitoring-config`) add `retry` and `SkipDryRunOnMissingResource=true`.
-- Enabled now: `portfolio`, `cert-manager`, `cert-manager-config`.
-- Parked: `argocd-config` (`infrastructure/argocd`, the ArgoCD web-UI routes), `cloudflared` (needs a tunnel cutover,
+- Enabled now: `portfolio`, `cert-manager`, `cert-manager-config`, `argocd-config`.
+- Parked: `cloudflared` (needs a tunnel cutover,
   see its header), `kube-prometheus-stack` + `monitoring-config`, and `elk` (**never enable on this
   hardware**: ~2.6 GiB of requests).
 - cert-manager was adopted by ArgoCD on 2026-10-04 (chart v1.21.2, no reissue of the wildcard cert). A stale
   Helm release (revision 1) is still recorded; never run helm against cert-manager again (`helm upgrade`
-  would fight ArgoCD; `helm uninstall` deletes the live resources). The argocd IngressRoutes are still
-  hand-applied with no ArgoCD tracking.
+  would fight ArgoCD; `helm uninstall` deletes the live resources). The ArgoCD UI IngressRoutes
+  (`argocd-server` websecure, `argocd-server-http` web) were adopted by `argocd-config` on 2026-10-04 with no
+  spec change. Deleting or renaming them in `infrastructure/argocd` makes ArgoCD prune them and the UI becomes
+  unreachable (kubectl still works).
 - ArgoCD's in-cluster cluster Secret (`clusters/homelab/bootstrap/cluster-in-cluster.yaml`, hand-applied, not
   synced) limits ArgoCD to the namespaces argocd, portfolio, cert-manager, kube-system. Before enabling an
   Application that deploys into any other namespace (monitoring, media, soc-lab, ...), add the namespace
@@ -128,8 +130,8 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
   Backups of the token and SQLite datastore were taken beforehand and kept off-repo. Moving the control plane
   to AWS was rejected: the AWS free-plan account closes after 6 months and a 24/7 node would burn most of the
   $200 credits. cert-manager + cert-manager-config enabled 2026-10-04 (see Architecture); cert-manager pods
-  prefer agent-1 (preferred affinity on node-role=cloud). Next: `argocd-config` (adopt the hand-applied ArgoCD
-  IngressRoutes; check the diff first), then consider `kube-prometheus-stack`.
+  prefer agent-1 (preferred affinity on node-role=cloud). `argocd-config` enabled 2026-10-04. Next: decide on
+  monitoring (full kube-prometheus-stack vs a stopgap; add `monitoring` to the cluster Secret first).
 - **Apex fixed 2026-10-04:** `shubhrajitpallob.dev` returned Cloudflare 522 because the apex `@` was a proxied
   A record pointing at a leftover Namecheap parking IP from the domain move. It's now a public hostname on the
   `k8s_cloud` tunnel, like `www`. Two `NS` records for `registrar-servers.com` are also left over in the
@@ -141,7 +143,7 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
   core), Tailscale-only access (`jellyfin-ts.`), never through the Cloudflare tunnel (Cloudflare's terms
   don't allow video). Keep it portable for a possible future local server. Its namespace must be added to the
   cluster Secret first.
-- **Monitoring:** the upgrade is done; the full stack now waits on `argocd-config` and the user's decision on the full
+- **Monitoring:** the upgrade is done; the full stack now waits on the user's decision on the full
   stack vs a stopgap; it also needs `monitoring` added to the cluster Secret. A lighter
   Prometheus + node-exporter with no operator or CRDs was offered as a stopgap; the user hasn't decided yet.
 - **SOC lab:** planning only. See `apps/soc-lab/PLAN.md` (same cluster, isolated namespaces, mandatory
@@ -166,3 +168,7 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
 - The restructure from `apps/base/<app>` and `infrastructure/controllers/<c>` to `apps/<app>` and
   `infrastructure/<c>` may show old paths as deleted and new ones as untracked in `git status`. That is the
   migration, not something to revert.
+- Move Application files with `git mv` (or `git add -A <dir>`) and check `git status` before pushing. A plain
+  `mv` plus `git commit -a` commits only the deletion (this happened on 2026-10-04).
+- After changing a file in `clusters/homelab/applications/`, hard-refresh the `root` app, not the child app:
+  the child keeps its old spec until root syncs.
