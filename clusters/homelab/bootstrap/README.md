@@ -66,9 +66,20 @@ on this cluster — see incident (b) above.
    At that point `applications/` contains only `portfolio.yaml`, so this is a low-risk single-Application
    sync, not the full multi-app bring-up that caused the original outage.
 
+## Namespace scope
+
+ArgoCD's in-cluster Secret (`cluster-in-cluster.yaml`) limits it to the namespaces `argocd`, `portfolio`,
+`cert-manager` and `kube-system`. An Application that deploys into any other namespace (`monitoring`,
+`media`, `soc-lab`, ...) fails with `namespace "X" is not managed` until the namespace is added. Before
+enabling such an Application:
+
+1. Add the namespace to `namespaces` in `clusters/homelab/bootstrap/cluster-in-cluster.yaml`.
+2. Apply it by hand: `kubectl apply -f clusters/homelab/bootstrap/cluster-in-cluster.yaml`
+3. Then enable the Application (move its file from `parked/` into `applications/`).
+
 ## Files
 
-- `cluster-in-cluster.yaml` — restricts the in-cluster server to the `argocd` and `portfolio` namespaces.
+- `cluster-in-cluster.yaml` — restricts the in-cluster server to a fixed list of namespaces (see Namespace scope).
   No credentials; it's a Secret only because Argo CD reads cluster config from Secrets. The user applies it
   by hand.
 - `argocd-cmd-params-cm.yaml` — full replacement for the live `argocd-cmd-params-cm`, adding concurrency

@@ -1,5 +1,8 @@
 # NOT synced by ArgoCD (applied by hand, see README). Limits the controller's in-cluster cache to the
-# argocd and portfolio namespaces; clusterResources is "true" because apps/portfolio includes a Namespace.
+# namespaces argocd, portfolio, cert-manager and kube-system (cert-manager/kube-system added 2026-10-04 for
+# the cert-manager adoption); clusterResources is "true" because apps/portfolio includes a Namespace.
+# Any new namespace an Application deploys into must be added to `namespaces` below and this Secret
+# re-applied by hand with `kubectl apply -f`, or the Application fails with `namespace "X" is not managed`.
 # After applying, check argocd-application-controller logs for in-cluster auth errors.
 apiVersion: v1
 kind: Secret
@@ -13,5 +16,5 @@ stringData:
   name: in-cluster
   server: https://kubernetes.default.svc
   config: '{"tlsClientConfig":{"insecure":false}}'
-  namespaces: "argocd,portfolio"
+  namespaces: "argocd,portfolio,cert-manager,kube-system"
   clusterResources: "true"

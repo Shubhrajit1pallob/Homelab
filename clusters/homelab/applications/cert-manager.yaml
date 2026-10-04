@@ -18,14 +18,51 @@ spec:
         resources:
           requests: {cpu: 10m, memory: 32Mi}
           limits: {memory: 96Mi}
+        affinity:
+          nodeAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                preference:
+                  matchExpressions:
+                    - key: node-role
+                      operator: In
+                      values: ["cloud"]
         cainjector:
           resources:
             requests: {cpu: 10m, memory: 32Mi}
             limits: {memory: 96Mi}
+          affinity:
+            nodeAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  preference:
+                    matchExpressions:
+                      - key: node-role
+                        operator: In
+                        values: ["cloud"]
         webhook:
           resources:
             requests: {cpu: 10m, memory: 16Mi}
             limits: {memory: 64Mi}
+          affinity:
+            nodeAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  preference:
+                    matchExpressions:
+                      - key: node-role
+                        operator: In
+                        values: ["cloud"]
+        startupapicheck:
+          affinity:
+            nodeAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  preference:
+                    matchExpressions:
+                      - key: node-role
+                        operator: In
+                        values: ["cloud"]
   destination:
     server: https://kubernetes.default.svc
     namespace: cert-manager

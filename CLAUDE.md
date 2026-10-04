@@ -46,14 +46,18 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
   Adding a new directory requires a new Application file.
 - Ordering uses sync waves (cert-manager wave 0 first). Applications that use CRDs installed by another chart
   (`cert-manager-config`, `monitoring-config`) add `retry` and `SkipDryRunOnMissingResource=true`.
-- Enabled now: `portfolio` only.
-- Parked: `cert-manager` (jetstack chart, values inline), `cert-manager-config` (`infrastructure/cert-manager`),
-  `argocd-config` (`infrastructure/argocd`, the ArgoCD web-UI routes), `cloudflared` (needs a tunnel cutover,
+- Enabled now: `portfolio`, `cert-manager`, `cert-manager-config`.
+- Parked: `argocd-config` (`infrastructure/argocd`, the ArgoCD web-UI routes), `cloudflared` (needs a tunnel cutover,
   see its header), `kube-prometheus-stack` + `monitoring-config`, and `elk` (**never enable on this
   hardware**: ~2.6 GiB of requests).
-- cert-manager (a plain `helm install`, not an ArgoCD-managed release) and the argocd IngressRoutes are live
-  in the cluster but were applied by hand, with no ArgoCD tracking labels on either — parking their
-  Application files doesn't change what's currently running.
+- cert-manager was adopted by ArgoCD on 2026-10-04 (chart v1.21.2, no reissue of the wildcard cert). A stale
+  Helm release (revision 1) is still recorded; never run helm against cert-manager again (`helm upgrade`
+  would fight ArgoCD; `helm uninstall` deletes the live resources). The argocd IngressRoutes are still
+  hand-applied with no ArgoCD tracking.
+- ArgoCD's in-cluster cluster Secret (`clusters/homelab/bootstrap/cluster-in-cluster.yaml`, hand-applied, not
+  synced) limits ArgoCD to the namespaces argocd, portfolio, cert-manager, kube-system. Before enabling an
+  Application that deploys into any other namespace (monitoring, media, soc-lab, ...), add the namespace
+  there and `kubectl apply -f` it, or the app fails with `namespace "X" is not managed`.
 - On disk with **no** Application (so not deployed): `infrastructure/longhorn` (ingress + cert only, no chart),
   `infrastructure/vault` (values only), `apps/homarr` (values only, chart unidentified), `apps/mealie`,
   `apps/postgres` (a CloudNativePG `Cluster` with no operator installed). Don't assume they are live.
@@ -123,9 +127,9 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
   kept running; public traffic likely dropped while server-1 (which hosts Traefik) rebooted — not measured.
   Backups of the token and SQLite datastore were taken beforehand and kept off-repo. Moving the control plane
   to AWS was rejected: the AWS free-plan account closes after 6 months and a 24/7 node would burn most of the
-  $200 credits. Next: re-enable `cert-manager` + `cert-manager-config` (ArgoCD will adopt the hand-installed
-  Helm release, so check the diff before syncing), then `argocd-config`, then consider
-  `kube-prometheus-stack` (its CRD burst is why it waits).
+  $200 credits. cert-manager + cert-manager-config enabled 2026-10-04 (see Architecture); cert-manager pods
+  prefer agent-1 (preferred affinity on node-role=cloud). Next: `argocd-config` (adopt the hand-applied ArgoCD
+  IngressRoutes; check the diff first), then consider `kube-prometheus-stack`.
 - **Apex fixed 2026-10-04:** `shubhrajitpallob.dev` returned Cloudflare 522 because the apex `@` was a proxied
   A record pointing at a leftover Namecheap parking IP from the domain move. It's now a public hostname on the
   `k8s_cloud` tunnel, like `www`. Two `NS` records for `registrar-servers.com` are also left over in the
@@ -135,8 +139,10 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
   VPS (Secaucus, NJ; 1 core, 4 GB, 2 TB SATA, 4 TB transfer/mo), joined as a tainted K3s node
   (`node-role=media`), media via read-only hostPath at `/srv/media`, direct play only (no transcoding on 1
   core), Tailscale-only access (`jellyfin-ts.`), never through the Cloudflare tunnel (Cloudflare's terms
-  don't allow video). Keep it portable for a possible future local server.
-- **Monitoring:** the upgrade is done; the full stack now waits for cert-manager to be re-enabled. A lighter
+  don't allow video). Keep it portable for a possible future local server. Its namespace must be added to the
+  cluster Secret first.
+- **Monitoring:** the upgrade is done; the full stack now waits on `argocd-config` and the user's decision on the full
+  stack vs a stopgap; it also needs `monitoring` added to the cluster Secret. A lighter
   Prometheus + node-exporter with no operator or CRDs was offered as a stopgap; the user hasn't decided yet.
 - **SOC lab:** planning only. See `apps/soc-lab/PLAN.md` (same cluster, isolated namespaces, mandatory
   guardrails, AWS credits for temporary lab resources with budget guardrails). Phase 0 is next: secure the
