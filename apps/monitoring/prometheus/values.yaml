@@ -122,8 +122,8 @@ grafana:
   service:
     type: ClusterIP # exposed through Traefik (see grafana-route.yaml), not a NodePort
   resources:
-    requests: {cpu: 50m, memory: 192Mi}
-    limits: {memory: 512Mi}
+    requests: {cpu: 50m, memory: 384Mi}
+    limits: {memory: 640Mi}
   initChownData:
     resources:
       requests: {cpu: 10m, memory: 16Mi}
@@ -135,8 +135,8 @@ grafana:
   # Sidecar hot-loads any ConfigMap labelled grafana_dashboard: "1" from every namespace.
   sidecar:
     resources:
-      requests: {cpu: 10m, memory: 32Mi}
-      limits: {memory: 96Mi}
+      requests: {cpu: 10m, memory: 64Mi}
+      limits: {memory: 128Mi}
     dashboards:
       enabled: true
       label: grafana_dashboard
