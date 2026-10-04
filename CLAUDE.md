@@ -62,8 +62,14 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
 
 ## Cluster and resource constraints
 
-- `server-1`: tainted control-plane, 1.6 GiB RAM and already ~64% used. Keep workloads off it (only
-  node-exporter tolerates the taint). `agent-1`: always-on, **1 vCPU**, 3.3 GiB, labelled `node-role=cloud`
+- `server-1`: tainted control-plane, InterServer 2 slices since 2026-10-04: 1 core, ~3.3 GiB RAM, 80 GB disk
+  (`/` is 77G), swap = 2 GiB `/swapfile` + 1 GiB partition (`sda3`), `vm.swappiness=10`. About 2.2-2.3 GiB is
+  used (~67%), mostly by K3s's own system pods, which tolerate the taint and run there: Traefik, CoreDNS,
+  metrics-server, local-path-provisioner, svclb-traefik. Before the resize this demand didn't fit in 1.6 GiB
+  and ~900 MB sat in swap. Keep your own workloads off it; node-exporter is the only app workload meant to
+  tolerate the taint. K3s flags: `--node-ip=<server-1 Tailscale IP>` and `--flannel-iface=tailscale0`;
+  datastore is SQLite (`/var/lib/rancher/k3s/server/db/state.db`).
+- `agent-1`: always-on, **1 vCPU**, 3.3 GiB, labelled `node-role=cloud`
   (needed by the portfolio's required affinity). `shubmedia`: a laptop, 4 CPU, 3.5 GiB, may go offline; it
   hosts the heavy monitoring pods and the Cloudflare tunnel connector. All nodes are amd64 and join via
   Tailscale (internal IPs are `100.x`).
@@ -77,6 +83,8 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
   (connector on the `shubmedia` host), TLS ends at Cloudflare, and admin UIs sit behind Cloudflare Access.
   Tunnel routes and Access apps are configured in the Cloudflare dashboard, not in this repo. Tunnel traffic
   arrives on Traefik's `web` entrypoint; direct Tailscale access uses `websecure` with the wildcard cert.
+- Public traffic depends on `server-1`: the single Traefik pod runs there, so if server-1 is down or
+  rebooting the site is unreachable even though the portfolio pods on `agent-1` keep running.
 - A hostname cannot be both a proxied tunnel name and a DNS-only Tailscale address, so where both are wanted
   the tailnet one gets its own name (e.g. `grafana.` public via Access, `grafana-ts.` direct).
 - cert-manager issues via `ClusterIssuer cloudflare-clusterissuer` (DNS-01). One wildcard `Certificate`
@@ -94,30 +102,42 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
   dashboard htpasswd hash, a Grafana password). Treat them as compromised and never put a secret in a committed
   file.
 
-## Current status and next steps (as of 2026-09-28; update or delete when stale)
+## Current status and next steps (as of 2026-10-04; update or delete when stale)
 
-- **ArgoCD is still scaled to 0** (all its deployments and the `argocd-application-controller` statefulset).
-  Two incidents so far: applying `root-app.yaml` with all child apps enabled choked K3s's SQLite datastore on
-  CRD writes; then on 2026-09-28, with ArgoCD already at 0, `server-1` ran out of memory (no swap), the kernel
-  thrashed, SQLite queries took ~18s, and the API server stopped responding — likely triggered by a
-  server-side dry-run against the large Application CRD. Fixed with a 2 GiB swapfile (`vm.swappiness=10`,
-  recreate on any rebuild) and a k3s restart. Bring-up is on hold until server-1 has been stable for a while
-  or is upgraded; the steps are in `clusters/homelab/bootstrap/README.md`.
-- **Portfolio is live but was applied by hand** (`kubectl apply -k apps/portfolio`, 2/2 pods on `agent-1`,
-  public at the apex and `www` through the tunnel). `applications/portfolio.yaml` is enabled in Git, but
-  ArgoCD isn't running yet. Live matches Git (sha-898ea70).
-- **Portfolio releases:** the portfolio repo's CI job `propose-homelab-release` opens a PR here bumping the
-  `sha-` image tag and `APP_VERSION` in `apps/portfolio/deployment.yaml` (it never pushes). The
-  `HOMELAB_REPO_TOKEN` secret now exists, but no real PR has been opened yet, so the flow is untested end to end.
-- **Control-plane upgrade next month, on Interserver** (resize or rebuild `server-1`). Moving it to AWS was
-  rejected: the AWS free-plan account closes after 6 months and a 24/7 node would burn most of the $200
-  credits. After the upgrade: follow `clusters/homelab/bootstrap/README.md` (portfolio is the only enabled
-  app, so the first sync should be a no-op adoption), prove a release PR syncs through ArgoCD, then re-enable
-  `cert-manager` + `cert-manager-config` (ArgoCD will adopt the hand-installed Helm release, so check the
-  diff before syncing), then `argocd-config`, then consider `kube-prometheus-stack` (its CRD burst is why it
-  waits).
-- **Monitoring:** the full stack waits for the upgrade. A lighter Prometheus + node-exporter with no operator
-  or CRDs was offered as a stopgap; the user hasn't decided yet.
+- **ArgoCD is live (since 2026-09-29)**, running only `portfolio`. It was brought up per
+  `clusters/homelab/bootstrap/README.md`: a namespace-scoped in-cluster Secret, lower parallelism, a 600s
+  reconciliation interval (so merges deploy within ~10 min, or press Refresh), and dex/applicationset-
+  controller/notifications-controller kept at 0. Only argocd-application-controller runs on `shubmedia` (the
+  laptop); argocd-server, repo-server and redis run on `agent-1`. If shubmedia is offline, reconciliation
+  stops (the controller is there) but the site keeps serving. A 2026-09-28 OOM-thrash incident on
+  server-1 (no swap) preceded this; fixed with a 2 GiB swapfile (`vm.swappiness=10`, recreate on any rebuild).
+- **Portfolio is live and managed by ArgoCD** (the no-op adoption on 2026-09-29), 2/2 pods on `agent-1`,
+  public at the apex and `www` through the tunnel.
+- **Portfolio releases:** the flow is proven end to end. The portfolio repo's CI job
+  `propose-homelab-release` opens a PR here bumping the `sha-` image tag and `APP_VERSION` in
+  `apps/portfolio/deployment.yaml` (it never pushes); merging it makes ArgoCD roll it out on its own. Proven
+  with PR #2 (`sha-c67d6c7`, new content and mobile fixes): merge to live took ~4m13s.
+- **Control-plane upgrade done 2026-10-04**: in-place resize of `server-1` to 2 slices (runbook and results
+  in `clusters/homelab/bootstrap/UPGRADE.md`). The Tailscale IP, taint and swap survived; the kernel moved to
+  7.0.0-34 (7.0.0-38 is available; not yet applied). All nodes Ready, ArgoCD Synced/Healthy. Portfolio pods
+  kept running; public traffic likely dropped while server-1 (which hosts Traefik) rebooted — not measured.
+  Backups of the token and SQLite datastore were taken beforehand and kept off-repo. Moving the control plane
+  to AWS was rejected: the AWS free-plan account closes after 6 months and a 24/7 node would burn most of the
+  $200 credits. Next: re-enable `cert-manager` + `cert-manager-config` (ArgoCD will adopt the hand-installed
+  Helm release, so check the diff before syncing), then `argocd-config`, then consider
+  `kube-prometheus-stack` (its CRD burst is why it waits).
+- **Apex fixed 2026-10-04:** `shubhrajitpallob.dev` returned Cloudflare 522 because the apex `@` was a proxied
+  A record pointing at a leftover Namecheap parking IP from the domain move. It's now a public hostname on the
+  `k8s_cloud` tunnel, like `www`. Two `NS` records for `registrar-servers.com` are also left over in the
+  Cloudflare zone; harmless for now, but the user should confirm the Namecheap account's nameservers point to
+  Cloudflare.
+- **Media server (planned 2026-10-04, nothing provisioned):** Jellyfin on a new InterServer 2-slice Storage
+  VPS (Secaucus, NJ; 1 core, 4 GB, 2 TB SATA, 4 TB transfer/mo), joined as a tainted K3s node
+  (`node-role=media`), media via read-only hostPath at `/srv/media`, direct play only (no transcoding on 1
+  core), Tailscale-only access (`jellyfin-ts.`), never through the Cloudflare tunnel (Cloudflare's terms
+  don't allow video). Keep it portable for a possible future local server.
+- **Monitoring:** the upgrade is done; the full stack now waits for cert-manager to be re-enabled. A lighter
+  Prometheus + node-exporter with no operator or CRDs was offered as a stopgap; the user hasn't decided yet.
 - **SOC lab:** planning only. See `apps/soc-lab/PLAN.md` (same cluster, isolated namespaces, mandatory
   guardrails, AWS credits for temporary lab resources with budget guardrails). Phase 0 is next: secure the
   AWS account, set up budget alerts, and write (not apply) the namespace/NetworkPolicy/quota manifests.
@@ -125,10 +145,14 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
 - **Portfolio architecture diagram:** built in the portfolio repo, not here. The user is briefing the portfolio
   agent directly. Facts already given to that agent: GitOps path shown as "built, paused"; release-PR job not
   yet proven; monitoring/in-cluster cloudflared/ELK written but not running; no Terraform/Ansible; V1 = commit
-  `97f26fc`, V2 = `981ccd7`; no IPs, tailnet or admin hostnames; role names instead of node names.
+  `97f26fc`, V2 = `981ccd7`; no IPs, tailnet or admin hostnames; role names instead of node names. GitOps is
+  now live, not paused. Tell the portfolio agent so the diagram's "built, paused" label can be updated.
 - **Lower priority:** rotate the Postgres password leaked in Git history; review
-  `scripts/argocd-setup-interserver.sh` (it patches ArgoCD nodeSelectors to `workload: gitops`); the user's
-  K3s install flags (`ExecStart` in `k3s.service` / `k3s-agent.service`) are still needed for the upgrade.
+  `scripts/argocd-setup-interserver.sh` (it patches ArgoCD nodeSelectors to `workload: gitops`); harden SSH on
+  server-1 (it currently allows root password login on its public IP; move to key-only and ideally
+  Tailscale-only); from the Mac, port 80 on every node's Tailscale IP times out (kubectl over Tailscale works),
+  so check the Tailscale ACLs / node firewall before relying on Tailscale-only ingress (needed for Jellyfin
+  and `grafana-ts`).
 
 ## Working with this repo's current state
 
