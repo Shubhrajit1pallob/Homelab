@@ -122,8 +122,8 @@ grafana:
   service:
     type: ClusterIP # exposed through Traefik (see grafana-route.yaml), not a NodePort
   resources:
-    requests: {cpu: 50m, memory: 100Mi}
-    limits: {memory: 256Mi}
+    requests: {cpu: 50m, memory: 192Mi}
+    limits: {memory: 512Mi}
   initChownData:
     resources:
       requests: {cpu: 10m, memory: 16Mi}
