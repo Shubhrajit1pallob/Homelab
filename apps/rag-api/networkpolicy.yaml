@@ -1,0 +1,88 @@
+# rag-api holds paid API keys and the database credentials, so it is locked down both ways:
+#   ingress: only the portfolio Pods, on 8000
+#   egress:  DNS to CoreDNS, then HTTPS (Voyage, Anthropic) and Postgres (Supabase session pooler, 5432)
+#            to addresses OUTSIDE the cluster and tailnet only
+# Enforced by k3s's embedded network-policy controller. NOT YET TESTED here (same as apps/portfolio): after
+# the first deploy, confirm a chat question works end to end, and that a throwaway Pod in another namespace
+# times out on rag-api.rag-api:8000.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: rag-api
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-portfolio-to-api
+  namespace: rag-api
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: rag-api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: portfolio
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: portfolio
+      ports:
+        - protocol: TCP
+          port: 8000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: rag-api
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-external-apis
+  namespace: rag-api
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: rag-api
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.42.0.0/16   # Pod CIDR
+              - 10.43.0.0/16   # Service CIDR
+              - 100.64.0.0/10  # Tailscale (node IPs)
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 5432

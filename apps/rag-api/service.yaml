@@ -1,0 +1,52 @@
+# ClusterIP only: rag-api is never exposed through Traefik or the tunnel. Its one client is the portfolio's
+# /api/chat route, which reaches it at http://rag-api.rag-api.svc.cluster.local:8000.
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-api
+  namespace: rag-api
+  labels:
+    app.kubernetes.io/name: rag-api
+spec:
+  type: ClusterIP
+  # component: api too, so the keepalive CronJob's pods (same name label, for the NetworkPolicy) are never
+  # picked as endpoints.
+  selector:
+    app.kubernetes.io/name: rag-api
+    app.kubernetes.io/component: api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+---
+# Non-secret settings (app/config.py reads them as env vars; names are case-insensitive). The secrets
+# (RAG_QUERY_API_KEY, RAG_ADMIN_API_KEY, VOYAGE_API_KEY, ANTHROPIC_API_KEY, DATABASE_URL) live in the hand-made
+# Secret rag-api-secrets, see the header of deployment.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rag-api-config
+  namespace: rag-api
+data:
+  VOYAGE_EMBEDDING_MODEL: "voyage-3"
+  # Must match the vector(N) column in the rag-api repo's db/schema.sql; changing it means re-embedding.
+  EMBEDDING_DIMENSIONS: "1024"
+  CLAUDE_MODEL: "claude-haiku-4-5-20251001"
+  # Supabase session pooler: every open connection counts against the project's pooler limit.
+  DB_POOL_MIN_SIZE: "1"
+  DB_POOL_MAX_SIZE: "5"
+  MAX_CHUNK_SIZE: "400"
+  RETRIEVAL_TOP_K: "5"
+  MIN_SIMILARITY: "0.0"
+  # Spend cap: total /query calls per UTC day across ALL callers. Counted in Postgres (table query_usage), so
+  # it holds across restarts and replicas; over it, rag-api answers 429. The portfolio's own per-pod daily
+  # cap (300) sits in front of this one.
+  DAILY_QUERY_LIMIT: "300"
+  CLAUDE_MAX_TOKENS: "400"
+  # The portfolio already stops at 400 characters; this is rag-api's own backstop.
+  MAX_QUESTION_CHARS: "500"
+  # Timeout budget: the portfolio's client gives up after 20s. A question is one Voyage call, one Claude call
+  # and the DB, so the code defaults (20s per call, 1 retry) could run past 40s: the visitor would see an error
+  # while the answer was still paid for. 8s with no retry keeps the worst case around 16s.
+  UPSTREAM_TIMEOUT_SECONDS: "8"
+  UPSTREAM_MAX_RETRIES: "0"

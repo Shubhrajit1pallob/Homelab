@@ -1,0 +1,83 @@
+# Keeps the Supabase project awake: free-plan projects are paused after about a week without activity, and a
+# paused project takes the chatbot (and the view counter) down until it is restored by hand.
+# Once a day this runs one small read on a real table (not `select 1`: Supabase doesn't define exactly what
+# counts as activity, so a real query is the safer bet). A failed run leaves a failed Job, visible in
+# `kubectl -n rag-api get jobs` and in kube-state-metrics.
+#
+# It reuses the rag-api image (it already has Python and psycopg) and the app.kubernetes.io/name: rag-api
+# label, so networkpolicy.yaml already allows its DNS and its connection to Supabase on 5432; no new image or
+# rule. It gets ONLY DATABASE_URL from rag-api-secrets, not the API keys. The Service selects
+# component: api, so this pod never receives chat traffic.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: supabase-keepalive
+  namespace: rag-api
+  labels:
+    app.kubernetes.io/name: rag-api
+    app.kubernetes.io/component: keepalive
+spec:
+  schedule: "23 9 * * *"     # daily, 09:23 UTC
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid
+  # If the controller missed the slot (e.g. server-1 rebooting), still run within the next hour.
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 120
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: rag-api
+            app.kubernetes.io/component: keepalive
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          # Same node as the API, so the image is already cached there.
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: node-role
+                        operator: In
+                        values: ["cloud"]
+          containers:
+            - name: keepalive
+              # Tag is set once for both this and the Deployment, in kustomization.yaml (images:).
+              image: ghcr.io/shubhrajit1pallob/rag-api
+              imagePullPolicy: IfNotPresent
+              command:
+                - python
+                - -c
+                - |
+                  import os, psycopg
+                  with psycopg.connect(os.environ["DATABASE_URL"], connect_timeout=15) as conn:
+                      n = conn.execute("select count(*) from public.documents").fetchone()[0]
+                  print(f"supabase keepalive ok: {n} documents")
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: rag-api-secrets
+                      key: DATABASE_URL
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 128Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]

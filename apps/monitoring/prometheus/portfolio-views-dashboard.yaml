@@ -1,0 +1,58 @@
+# "Portfolio views" dashboard, loaded by Grafana's sidecar (label grafana_dashboard: "1").
+# Reads analytics.page_views in Supabase through the "Supabase analytics" datasource (values.yaml). One row is
+# one unique visitor per page per UTC day; `source` is where that visitor's first view of the page that day
+# came from (linkedin / github / resume via ?ref=, a referrer host, internal, or direct).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-portfolio-views
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  portfolio-views.json: |
+    {
+      "title": "Portfolio views",
+      "uid": "portfolio-views",
+      "schemaVersion": 38,
+      "time": { "from": "now-30d", "to": "now" },
+      "refresh": "5m",
+      "panels": [
+        {
+          "id": 1, "type": "stat", "title": "Unique visitors (range)",
+          "gridPos": { "x": 0, "y": 0, "w": 6, "h": 5 },
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "supabase-analytics" },
+          "targets": [{ "refId": "A", "format": "table", "rawQuery": true, "editorMode": "code",
+            "rawSql": "SELECT count(DISTINCT (day, visitor_hash)) AS visitors FROM analytics.page_views WHERE day BETWEEN $__timeFrom()::date AND $__timeTo()::date" }]
+        },
+        {
+          "id": 2, "type": "stat", "title": "Visitors from my links (range)",
+          "gridPos": { "x": 6, "y": 0, "w": 18, "h": 5 },
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "supabase-analytics" },
+          "targets": [{ "refId": "A", "format": "table", "rawQuery": true, "editorMode": "code",
+            "rawSql": "SELECT count(DISTINCT (day, visitor_hash)) FILTER (WHERE source = 'linkedin') AS linkedin, count(DISTINCT (day, visitor_hash)) FILTER (WHERE source = 'github') AS github, count(DISTINCT (day, visitor_hash)) FILTER (WHERE source = 'resume') AS resume FROM analytics.page_views WHERE day BETWEEN $__timeFrom()::date AND $__timeTo()::date" }]
+        },
+        {
+          "id": 3, "type": "timeseries", "title": "Unique visitors per day, by source",
+          "gridPos": { "x": 0, "y": 5, "w": 24, "h": 9 },
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "supabase-analytics" },
+          "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "stacking": { "mode": "normal" } } } },
+          "targets": [{ "refId": "A", "format": "time_series", "rawQuery": true, "editorMode": "code",
+            "rawSql": "SELECT day::timestamp AS time, source AS metric, count(DISTINCT visitor_hash) AS value FROM analytics.page_views WHERE day BETWEEN $__timeFrom()::date AND $__timeTo()::date AND source <> 'internal' GROUP BY 1, 2 ORDER BY 1" }]
+        },
+        {
+          "id": 4, "type": "table", "title": "Top pages (unique visitor-days)",
+          "gridPos": { "x": 0, "y": 14, "w": 12, "h": 10 },
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "supabase-analytics" },
+          "targets": [{ "refId": "A", "format": "table", "rawQuery": true, "editorMode": "code",
+            "rawSql": "SELECT path, count(*) AS views FROM analytics.page_views WHERE day BETWEEN $__timeFrom()::date AND $__timeTo()::date GROUP BY 1 ORDER BY 2 DESC LIMIT 25" }]
+        },
+        {
+          "id": 5, "type": "table", "title": "Where visitors came from",
+          "gridPos": { "x": 12, "y": 14, "w": 12, "h": 10 },
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "supabase-analytics" },
+          "targets": [{ "refId": "A", "format": "table", "rawQuery": true, "editorMode": "code",
+            "rawSql": "SELECT source, count(DISTINCT (day, visitor_hash)) AS visitors FROM analytics.page_views WHERE day BETWEEN $__timeFrom()::date AND $__timeTo()::date AND source <> 'internal' GROUP BY 1 ORDER BY 2 DESC" }]
+        }
+      ]
+    }

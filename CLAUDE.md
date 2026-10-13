@@ -49,7 +49,9 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
 - Enabled now: `portfolio`, `cert-manager`, `cert-manager-config`, `argocd-config`.
 - Parked: `cloudflared` (needs a tunnel cutover,
   see its header), `kube-prometheus-stack` + `monitoring-config`, and `elk` (**never enable on this
-  hardware**: ~2.6 GiB of requests).
+  hardware**: ~2.6 GiB of requests), and `rag-api` (written 2026-10-09, updated 2026-10-12 for split
+  query/admin keys and a timeout budget; waits on a public GHCR image, the Supabase tables incl. `query_usage`,
+  and two hand-made Secrets; the six steps are in its header).
 - cert-manager was adopted by ArgoCD on 2026-10-04 (chart v1.21.2, no reissue of the wildcard cert). A stale
   Helm release (revision 1) is still recorded; never run helm against cert-manager again (`helm upgrade`
   would fight ArgoCD; `helm uninstall` deletes the live resources). The ArgoCD UI IngressRoutes
@@ -57,8 +59,9 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
   spec change. Deleting or renaming them in `infrastructure/argocd` makes ArgoCD prune them and the UI becomes
   unreachable (kubectl still works).
 - ArgoCD's in-cluster cluster Secret (`clusters/homelab/bootstrap/cluster-in-cluster.yaml`, hand-applied, not
-  synced) limits ArgoCD to the namespaces argocd, portfolio, cert-manager, kube-system. Before enabling an
-  Application that deploys into any other namespace (monitoring, media, soc-lab, ...), add the namespace
+  synced) limits ArgoCD to the namespaces argocd, portfolio, cert-manager, kube-system, monitoring, and (in the
+  file since 2026-10-12, live once re-applied) rag-api. Before enabling an Application that deploys into any
+  other namespace (media, soc-lab, ...), add the namespace
   there and `kubectl apply -f` it, or the app fails with `namespace "X" is not managed`.
 - On disk with **no** Application (so not deployed): `infrastructure/longhorn` (ingress + cert only, no chart),
   `infrastructure/vault` (values only), `apps/homarr` (values only, chart unidentified), `apps/mealie`,
@@ -75,8 +78,13 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
   and ~900 MB sat in swap. Keep your own workloads off it; node-exporter is the only app workload meant to
   tolerate the taint. K3s flags: `--node-ip=<server-1 Tailscale IP>` and `--flannel-iface=tailscale0`;
   datastore is SQLite (`/var/lib/rancher/k3s/server/db/state.db`).
-- `agent-1`: always-on, **1 vCPU**, 3.3 GiB, labelled `node-role=cloud`
-  (needed by the portfolio's required affinity). `shubmedia`: a laptop, 4 CPU, 3.5 GiB, may go offline; it
+- `agent-1`: always-on, InterServer 3 slices since 2026-10-10: **2 vCPU**, ~5.4 GiB, labelled `node-role=cloud`
+  (needed by the portfolio's required affinity). Resized by draining it (shubmedia temporarily labelled
+  `node-role=cloud` so the site stayed up), then uncordon, unlabel and `rollout restart`. After the reboot the host's
+  DNS broke: Tailscale's DNS (100.100.100.100) stopped answering, so it couldn't pull images and chrony couldn't sync
+  (the clock was 4h behind). agent-1 now runs with `--accept-dns=false`. Incident report and copy-paste fix:
+  `clusters/homelab/bootstrap/INCIDENT-2026-10-10-agent1-dns.md`. Ubuntu 26.04 uses chrony, not systemd-timesyncd.
+  Kernel is now 7.0.0-38. `shubmedia`: a laptop, 4 CPU, 3.5 GiB, may go offline; it
   hosts the heavy monitoring pods and the Cloudflare tunnel connector. All nodes are amd64 and join via
   Tailscale (internal IPs are `100.x`).
 - About 5.5 GiB is free across the two workers. Every workload needs requests and a memory limit.
@@ -101,7 +109,10 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
 ## Things that live only in the cluster (not in Git)
 
 - Secrets created by hand: `cloudflare-api-token-secret` (ns `cert-manager`, key `api-token`), `tunnel-token`
-  (ns `kube-system`, key `token`), `grafana-admin` (ns `monitoring`). There is no SOPS or sealed-secrets.
+  (ns `kube-system`, key `token`), `grafana-admin` (ns `monitoring`). Planned, for the chatbot and view
+  counter (commands in each manifest's comments): `rag-api-secrets` (ns `rag-api`, 5 keys incl. the query and
+  admin API keys), `rag-api-key` (ns `portfolio`, the QUERY key only), `portfolio-views` (ns `portfolio`),
+  `grafana-supabase` (ns `monitoring`). There is no SOPS or sealed-secrets.
   `apps/postgres/secrets.yaml` is plaintext and gitignored.
 - ArgoCD's `server.insecure: "true"` in the `argocd-cmd-params-cm` ConfigMap was patched in by hand.
 - **The remote is public and earlier history contains leaked credentials** (Postgres passwords, a Traefik
@@ -115,7 +126,8 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
   reconciliation interval (so merges deploy within ~10 min, or press Refresh), and dex/applicationset-
   controller/notifications-controller kept at 0. Only argocd-application-controller runs on `shubmedia` (the
   laptop); argocd-server, repo-server and redis run on `agent-1`. If shubmedia is offline, reconciliation
-  stops (the controller is there) but the site keeps serving. A 2026-09-28 OOM-thrash incident on
+  stops (the controller is there) AND the public site goes down: the only Cloudflare Tunnel connector runs
+  on the shubmedia host (corrected 2026-10-05; earlier text wrongly said the site keeps serving). A 2026-09-28 OOM-thrash incident on
   server-1 (no swap) preceded this; fixed with a 2 GiB swapfile (`vm.swappiness=10`, recreate on any rebuild).
 - **Portfolio is live and managed by ArgoCD** (the no-op adoption on 2026-09-29), 2/2 pods on `agent-1`,
   public at the apex and `www` through the tunnel.
@@ -130,8 +142,8 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
   Backups of the token and SQLite datastore were taken beforehand and kept off-repo. Moving the control plane
   to AWS was rejected: the AWS free-plan account closes after 6 months and a 24/7 node would burn most of the
   $200 credits. cert-manager + cert-manager-config enabled 2026-10-04 (see Architecture); cert-manager pods
-  prefer agent-1 (preferred affinity on node-role=cloud). `argocd-config` enabled 2026-10-04. Next: decide on
-  monitoring (full kube-prometheus-stack vs a stopgap; add `monitoring` to the cluster Secret first).
+  prefer agent-1 (preferred affinity on node-role=cloud). `argocd-config` enabled 2026-10-04.
+  `kube-prometheus-stack` + `monitoring-config` enabled 2026-10-04 (see Monitoring).
 - **Apex fixed 2026-10-04:** `shubhrajitpallob.dev` returned Cloudflare 522 because the apex `@` was a proxied
   A record pointing at a leftover Namecheap parking IP from the domain move. It's now a public hostname on the
   `k8s_cloud` tunnel, like `www`. Two `NS` records for `registrar-servers.com` are also left over in the
@@ -143,18 +155,25 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
   core), Tailscale-only access (`jellyfin-ts.`), never through the Cloudflare tunnel (Cloudflare's terms
   don't allow video). Keep it portable for a possible future local server. Its namespace must be added to the
   cluster Secret first.
-- **Monitoring:** the upgrade is done; the full stack now waits on the user's decision on the full
-  stack vs a stopgap; it also needs `monitoring` added to the cluster Secret. A lighter
-  Prometheus + node-exporter with no operator or CRDs was offered as a stopgap; the user hasn't decided yet.
+- **Monitoring enabled 2026-10-04:** kube-prometheus-stack 91.7.0 + `monitoring-config`. Prometheus, Grafana,
+  operator and kube-state-metrics are pinned to shubmedia; node-exporter runs on all 3 nodes; Alertmanager is
+  disabled (no alert delivery yet). Retention 7d / 4GB on a 5Gi local-path PVC (node-local). The 10 CRDs
+  (~4.4 MB) were pre-applied by hand one at a time with server-side apply while watching server-1 memory;
+  repeat that on any rebuild. Grafana 13 needs ~400Mi steady (now 384Mi/640Mi, sidecars 64Mi/128Mi; 256Mi
+  caused liveness kills on startup). Measured after: server-1 ~53%, agent-1 ~27%, shubmedia ~58%; ArgoCD
+  controller ~152Mi -> ~337Mi; Prometheus ~115k series (mostly cAdvisor, a trimming candidate). Grafana is
+  public via a tunnel hostname behind Cloudflare Access; `grafana-ts.` waits on the Tailscale port issue.
 - **SOC lab:** planning only. See `apps/soc-lab/PLAN.md` (same cluster, isolated namespaces, mandatory
   guardrails, AWS credits for temporary lab resources with budget guardrails). Phase 0 is next: secure the
   AWS account, set up budget alerts, and write (not apply) the namespace/NetworkPolicy/quota manifests.
   Open questions are listed at the end of the plan.
-- **Portfolio architecture diagram:** built in the portfolio repo, not here. The user is briefing the portfolio
-  agent directly. Facts already given to that agent: GitOps path shown as "built, paused"; release-PR job not
-  yet proven; monitoring/in-cluster cloudflared/ELK written but not running; no Terraform/Ansible; V1 = commit
-  `97f26fc`, V2 = `981ccd7`; no IPs, tailnet or admin hostnames; role names instead of node names. GitOps is
-  now live, not paused. Tell the portfolio agent so the diagram's "built, paused" label can be updated.
+- **Portfolio site (portfolio repo, not here):** on 2026-10-05 the `/work/homelab` case study was updated to
+  show GitOps and monitoring as live, and a blog series started (Post 1 `hybrid-k3s-homelab`, with a new
+  staircase diagram). Public-content rules: no IPs, tailnet or admin hostnames; role names instead of node
+  names; no unfixed weaknesses or leaked-credential history.
+- **Single point of failure, laptop tunnel:** the only Cloudflare Tunnel connector runs on the shubmedia host, so
+  a laptop outage takes the public site down. Fix: run cloudflared in-cluster on the VPS nodes (the parked
+  `cloudflared` app, which needs a tunnel cutover; plan it before enabling).
 - **Lower priority:** rotate the Postgres password leaked in Git history; review
   `scripts/argocd-setup-interserver.sh` (it patches ArgoCD nodeSelectors to `workload: gitops`); harden SSH on
   server-1 (it currently allows root password login on its public IP; move to key-only and ideally

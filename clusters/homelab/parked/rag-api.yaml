@@ -1,0 +1,38 @@
+# PARKED. Enable by moving this file into clusters/homelab/applications/ (your commit, with git mv).
+# Prerequisites, in order:
+#   1. The rag-api repo's CI publishes ghcr.io/shubhrajit1pallob/rag-api:sha-<full commit sha>, and the GHCR
+#      package is set to PUBLIC (there is no imagePullSecret). Put that tag in apps/rag-api/kustomization.yaml
+#      (images: newTag); it covers the Deployment and the supabase-keepalive CronJob.
+#   2. Supabase: the rag-api repo's db/schema.sql is applied (documents, chunks AND query_usage), and the
+#      rag_api DB user can read and write all three.
+#   3. `kubectl apply -f clusters/homelab/bootstrap/cluster-in-cluster.yaml` (rag-api is already in its
+#      `namespaces`), or the sync fails with `namespace "rag-api" is not managed`.
+#   4. git mv this file into clusters/homelab/applications/, push, and hard-refresh the root app.
+#   5. After the first sync creates the namespace, create Secret rag-api-secrets (5 keys, header of
+#      apps/rag-api/deployment.yaml); the Pod waits in CreateContainerConfigError until it exists. Then, in
+#      the portfolio namespace, Secret rag-api-key holding the QUERY key, and restart the portfolio.
+#   6. Load the site's content, from the Mac:
+#        kubectl -n rag-api port-forward svc/rag-api 8000:8000
+#        # in the portfolio repo, with the ADMIN key:
+#        RAG_API_URL=http://localhost:8000 RAG_API_KEY=<admin key> python -m app.rag_export --dry-run
+#      Review the output, then run it again without --dry-run.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: rag-api
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Shubhrajit1pallob/Homelab.git
+    targetRevision: main
+    path: apps/rag-api
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: rag-api
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

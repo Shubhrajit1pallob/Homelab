@@ -128,6 +128,29 @@ grafana:
     resources:
       requests: {cpu: 10m, memory: 16Mi}
       limits: {memory: 32Mi}
+  # Read-only Supabase connection for the portfolio's page view counter (table analytics.page_views, written
+  # by the portfolio app; SQL in the portfolio repo's db/page_views.sql). Credentials come from a hand-made
+  # Secret, expanded into the datasource below at startup. Optional, so Grafana still starts without it:
+  #   kubectl -n monitoring create secret generic grafana-supabase \
+  #     --from-literal=SUPABASE_PG_HOST=<session-pooler-host>:5432 \
+  #     --from-literal=SUPABASE_PG_USER=grafana_reader.<project-ref> --from-literal=SUPABASE_PG_PASSWORD=...
+  # Then restart Grafana (kubectl -n monitoring rollout restart deploy/kube-prometheus-stack-grafana).
+  envFromSecrets:
+    - name: grafana-supabase
+      optional: true
+  additionalDataSources:
+    - name: Supabase analytics
+      uid: supabase-analytics
+      type: grafana-postgresql-datasource
+      url: $SUPABASE_PG_HOST
+      user: $SUPABASE_PG_USER
+      editable: false
+      jsonData:
+        database: postgres
+        sslmode: require
+        maxOpenConns: 2
+      secureJsonData:
+        password: $SUPABASE_PG_PASSWORD
   grafana.ini:
     server:
       # Grafana builds redirects and links from this. It is the public (Cloudflare Access) hostname.

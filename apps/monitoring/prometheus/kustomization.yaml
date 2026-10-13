@@ -5,5 +5,6 @@ kind: Kustomization
 resources:
   - node-alerts.yaml
   - dashboard-configmap.yaml
+  - portfolio-views-dashboard.yaml
   - portfolio-servicemonitor.yaml
   - grafana-route.yaml

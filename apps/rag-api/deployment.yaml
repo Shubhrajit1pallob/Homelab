@@ -1,0 +1,133 @@
+# rag-api: FastAPI service that answers questions about the portfolio's content (Voyage embeddings, Supabase
+# pgvector, Claude). Source and image: https://github.com/Shubhrajit1pallob/rag-api.
+#
+# Requires a hand-made Secret (never commit it; this repo is public). The two API keys must differ (startup
+# fails otherwise); make each with `openssl rand -hex 32`:
+#   kubectl -n rag-api create secret generic rag-api-secrets \
+#     --from-literal=RAG_QUERY_API_KEY=... --from-literal=RAG_ADMIN_API_KEY=... \
+#     --from-literal=VOYAGE_API_KEY=... --from-literal=ANTHROPIC_API_KEY=... \
+#     --from-literal=DATABASE_URL='postgresql://rag_api.<project-ref>:...@<pooler-host>:5432/postgres?sslmode=require'
+# The query key can only ask questions; the admin key can also add/delete documents.
+#   - The portfolio gets ONLY the query key, in its own Secret rag-api-key (see apps/portfolio/deployment.yaml).
+#   - The admin key never leaves this namespace and your Mac: it is used only by the portfolio repo's
+#     `python -m app.rag_export`, run from the Mac through `kubectl -n rag-api port-forward svc/rag-api 8000:8000`.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-api
+  namespace: rag-api
+  labels:
+    app.kubernetes.io/name: rag-api
+    app.kubernetes.io/component: api
+spec:
+  # One replica: the only client is the portfolio chat, which already shows a friendly error when rag-api is
+  # unreachable. maxSurge keeps rollouts gap-free.
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rag-api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rag-api
+        app.kubernetes.io/component: api
+    spec:
+      automountServiceAccountToken: false
+
+      # The image's appuser has no fixed UID, so pin one here. Files in the image are world-readable and the
+      # root filesystem is read-only, so the UID needs no ownership of anything.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Same always-on node as the portfolio (shubmedia is a laptop that goes offline; server-1 is tainted).
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role
+                    operator: In
+                    values: ["cloud"]
+
+      containers:
+        - name: rag-api
+          # The tag (an immutable sha-<full commit>) is set in kustomization.yaml (images:), shared with the
+          # keepalive CronJob.
+          image: ghcr.io/shubhrajit1pallob/rag-api
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8000
+
+          envFrom:
+            - configMapRef:
+                name: rag-api-config
+            - secretRef:
+                name: rag-api-secrets
+          env:
+            # Some client libraries write caches under $HOME; the only writable path is /tmp.
+            - name: HOME
+              value: /tmp
+
+          # /health has no dependencies (the DB pool opens lazily on the first real request), so these only
+          # say the process is up, not that Supabase/Voyage/Claude are reachable.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 2
+            failureThreshold: 15
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 2
+
+          resources:
+            # First guess (FastAPI + anthropic + voyageai + psycopg pool); check `kubectl top pod -n rag-api`
+            # after a week and tighten. No CPU limit, as with the portfolio (single-core node).
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 384Mi
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 32Mi
+
+      # Lets an in-flight question (embedding + Claude call) finish on rollout.
+      terminationGracePeriodSeconds: 30
