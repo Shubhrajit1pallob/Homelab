@@ -14,4 +14,4 @@ generators:
 # Application is parked.
 images:
   - name: ghcr.io/shubhrajit1pallob/rag-api
-    newTag: sha-REPLACE_WITH_FIRST_CI_BUILD
+    newTag: sha-414909196210e666c80776774c314967cac1bd7b
