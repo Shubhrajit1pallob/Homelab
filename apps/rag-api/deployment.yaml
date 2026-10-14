@@ -1,12 +1,10 @@
 # rag-api: FastAPI service that answers questions about the portfolio's content (Voyage embeddings, Supabase
 # pgvector, Claude). Source and image: https://github.com/Shubhrajit1pallob/rag-api.
 #
-# Requires a hand-made Secret (never commit it; this repo is public). The two API keys must differ (startup
-# fails otherwise); make each with `openssl rand -hex 32`:
-#   kubectl -n rag-api create secret generic rag-api-secrets \
-#     --from-literal=RAG_QUERY_API_KEY=... --from-literal=RAG_ADMIN_API_KEY=... \
-#     --from-literal=VOYAGE_API_KEY=... --from-literal=ANTHROPIC_API_KEY=... \
-#     --from-literal=DATABASE_URL='postgresql://rag_api.<project-ref>:...@<pooler-host>:5432/postgres?sslmode=require'
+# Requires Secret rag-api-secrets (5 keys: RAG_QUERY_API_KEY, RAG_ADMIN_API_KEY, VOYAGE_API_KEY, ANTHROPIC_API_KEY,
+# DATABASE_URL). This Secret is SOPS-encrypted in apps/rag-api/secrets/rag-api-secrets.enc.yaml; edit with
+# `sops edit apps/rag-api/secrets/rag-api-secrets.enc.yaml`. See clusters/homelab/bootstrap/SECRETS-SOPS.md.
+# The two API keys must differ (startup fails otherwise); make each with `openssl rand -hex 32`.
 # The query key can only ask questions; the admin key can also add/delete documents.
 #   - The portfolio gets ONLY the query key, in its own Secret rag-api-key (see apps/portfolio/deployment.yaml).
 #   - The admin key never leaves this namespace and your Mac: it is used only by the portfolio repo's

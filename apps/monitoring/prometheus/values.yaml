@@ -129,12 +129,12 @@ grafana:
       requests: {cpu: 10m, memory: 16Mi}
       limits: {memory: 32Mi}
   # Read-only Supabase connection for the portfolio's page view counter (table analytics.page_views, written
-  # by the portfolio app; SQL in the portfolio repo's db/page_views.sql). Credentials come from a hand-made
-  # Secret, expanded into the datasource below at startup. Optional, so Grafana still starts without it:
-  #   kubectl -n monitoring create secret generic grafana-supabase \
-  #     --from-literal=SUPABASE_PG_HOST=<session-pooler-host>:5432 \
-  #     --from-literal=SUPABASE_PG_USER=grafana_reader.<project-ref> --from-literal=SUPABASE_PG_PASSWORD=...
-  # Then restart Grafana (kubectl -n monitoring rollout restart deploy/kube-prometheus-stack-grafana).
+  # by the portfolio app; SQL in the portfolio repo's db/page_views.sql). Credentials come from a Secret,
+  # expanded into the datasource below at startup. Optional, so Grafana still starts without it.
+  # This Secret is SOPS-encrypted in apps/monitoring/prometheus/secrets/grafana-supabase.enc.yaml; edit with
+  # `sops edit apps/monitoring/prometheus/secrets/grafana-supabase.enc.yaml`. See
+  # clusters/homelab/bootstrap/SECRETS-SOPS.md.
+  # After changing a value, restart Grafana (kubectl -n monitoring rollout restart deploy/kube-prometheus-stack-grafana).
   envFromSecrets:
     - name: grafana-supabase
       optional: true

@@ -7,7 +7,10 @@
 # A file fails when:
 #   - it has no top-level `sops:` block, or
 #   - any entry under the top-level `data:` / `stringData:` maps has a value that is not ENC[...].
-# Exit status is 1 if any file fails, 0 otherwise. Needs only bash and awk (no YAML parser).
+# Placeholder guard: when SOPS_AGE_KEY_FILE is set and readable (and sops is installed), each file is also
+# decrypted IN MEMORY (sops -d into a shell variable, never to disk) and fails if any value is the placeholder
+# CHANGE_ME. Values are never printed, only the key name. Without a key this check is skipped with a note.
+# Exit status is 1 if any file fails, 0 otherwise. Needs bash and awk (no YAML parser); sops only for the guard.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -24,6 +27,13 @@ fi
 if [ "${#files[@]}" -eq 0 ]; then
   echo "no *.enc.yaml files found; nothing to check"
   exit 0
+fi
+
+placeholder_check=0
+if [ -n "${SOPS_AGE_KEY_FILE:-}" ] && [ -r "$SOPS_AGE_KEY_FILE" ] && command -v sops >/dev/null 2>&1; then
+  placeholder_check=1
+else
+  echo "note: SOPS_AGE_KEY_FILE unset or unreadable, or sops not installed; skipping the CHANGE_ME placeholder check"
 fi
 
 failed=0
@@ -63,9 +73,45 @@ for f in "${files[@]}"; do
     failed=1
     while IFS= read -r p; do
       echo "FAIL $f: $p"
-    done <<< "$problems"
+    done <<<"$problems"
   else
-    echo "ok   $f"
+    placeholders=""
+    if [ "$placeholder_check" -eq 1 ]; then
+      if decrypted="$(sops -d "$f" 2>/dev/null)"; then
+        # Same section walk as above; reports key names only. Also catches CHANGE_ME in base64 under data:.
+        placeholders="$(printf '%s\n' "$decrypted" | awk '
+          /^[^ \t#-]/ {
+            key = $0
+            sub(/:.*/, "", key)
+            section = (key == "data" || key == "stringData") ? key : ""
+            next
+          }
+          section != "" && /^[ \t]+[^ \t#]/ {
+            line = $0
+            sub(/^[ \t]+/, "", line)
+            name = line
+            sub(/:.*/, "", name)
+            value = line
+            sub(/^[^:]*:[ \t]*/, "", value)
+            gsub(/^["\x27]|["\x27]$/, "", value)
+            if (value == "CHANGE_ME" || value == "Q0hBTkdFX01F") {
+              printf "placeholder CHANGE_ME in %s\n", name
+            }
+          }
+        ')"
+      else
+        placeholders="cannot decrypt with SOPS_AGE_KEY_FILE (wrong key?)"
+      fi
+      unset decrypted
+    fi
+    if [ -n "$placeholders" ]; then
+      failed=1
+      while IFS= read -r p; do
+        echo "FAIL $f: $p"
+      done <<<"$placeholders"
+    else
+      echo "ok   $f"
+    fi
   fi
 done
 

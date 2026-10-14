@@ -6,3 +6,6 @@ resources:
   - deployment.yaml
   - ingress.yaml
   - networkpolicy.yaml
+# Secret portfolio-views, SOPS-encrypted in secrets/ (see clusters/homelab/bootstrap/SECRETS-SOPS.md).
+generators:
+  - secrets/ksops-generator.yaml

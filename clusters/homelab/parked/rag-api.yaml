@@ -8,9 +8,10 @@
 #   3. `kubectl apply -f clusters/homelab/bootstrap/cluster-in-cluster.yaml` (rag-api is already in its
 #      `namespaces`), or the sync fails with `namespace "rag-api" is not managed`.
 #   4. git mv this file into clusters/homelab/applications/, push, and hard-refresh the root app.
-#   5. After the first sync creates the namespace, create Secret rag-api-secrets (5 keys, header of
-#      apps/rag-api/deployment.yaml); the Pod waits in CreateContainerConfigError until it exists. Then, in
-#      the portfolio namespace, Secret rag-api-key holding the QUERY key, and restart the portfolio.
+#   5. Fill apps/rag-api/secrets/rag-api-secrets.enc.yaml with `sops edit` (5 keys, see the header of
+#      apps/rag-api/deployment.yaml) and add rag-api-key to the portfolio generator
+#      (apps/portfolio/secrets/ksops-generator.yaml; it holds the QUERY key and switches the public chat on),
+#      then restart the portfolio. See clusters/homelab/bootstrap/SECRETS-SOPS.md.
 #   6. Load the site's content, from the Mac:
 #        kubectl -n rag-api port-forward svc/rag-api 8000:8000
 #        # in the portfolio repo, with the ADMIN key:

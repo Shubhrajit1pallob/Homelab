@@ -6,6 +6,9 @@ resources:
   - deployment.yaml
   - networkpolicy.yaml
   - cronjob.yaml
+# Secret rag-api-secrets, SOPS-encrypted in secrets/ (see clusters/homelab/bootstrap/SECRETS-SOPS.md).
+generators:
+  - secrets/ksops-generator.yaml
 # The rag-api image tag, set once here for the Deployment and the keepalive CronJob. Use the immutable
 # sha-<full commit> tag the rag-api repo's CI publishes. The placeholder can't pull, which is why the
 # Application is parked.

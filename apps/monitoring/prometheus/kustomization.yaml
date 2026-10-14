@@ -8,3 +8,6 @@ resources:
   - portfolio-views-dashboard.yaml
   - portfolio-servicemonitor.yaml
   - grafana-route.yaml
+# Secret grafana-supabase, SOPS-encrypted in secrets/ (see clusters/homelab/bootstrap/SECRETS-SOPS.md).
+generators:
+  - secrets/ksops-generator.yaml

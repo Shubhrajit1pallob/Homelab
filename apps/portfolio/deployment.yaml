@@ -82,9 +82,11 @@ spec:
             - name: METRICS_PORT
               value: "9090"
             # The /api/chat chatbot (apps/rag-api). It's only on when BOTH are set; the Secret is optional so
-            # Pods start without it and chat stays off. Create it by hand. The value is rag-api's
-            # RAG_QUERY_API_KEY (ask-only), NEVER its admin key; the env name stays RAG_API_KEY for the app:
-            #   kubectl -n portfolio create secret generic rag-api-key --from-literal=RAG_API_KEY=<query key>
+            # Pods start without it and chat stays off. This Secret is SOPS-encrypted in
+            # apps/portfolio/secrets/rag-api-key.enc.yaml; edit with `sops edit apps/portfolio/secrets/rag-api-key.enc.yaml`.
+            # See clusters/homelab/bootstrap/SECRETS-SOPS.md. It is NOT in the generator yet: add it there only when
+            # rag-api is live. The value is rag-api's RAG_QUERY_API_KEY (ask-only), NEVER its admin key; the env name
+            # stays RAG_API_KEY for the app.
             # Keep new env entries ABOVE the app-version entry: the portfolio repo's release CI regex needs
             # that entry's name line to be directly followed by its value line.
             - name: RAG_API_URL
@@ -96,10 +98,9 @@ spec:
                   key: RAG_API_KEY
                   optional: true
             # Page view counter (writes analytics.page_views in Supabase). On only when BOTH are set; the
-            # Secret is optional so Pods start without it. Create it by hand (the DB user can only INSERT):
-            #   kubectl -n portfolio create secret generic portfolio-views \
-            #     --from-literal=VIEWS_DATABASE_URL='postgresql://portfolio_views.<ref>:...@<pooler>:5432/postgres?sslmode=require' \
-            #     --from-literal=VIEWS_HASH_SECRET="$(openssl rand -hex 32)"
+            # Secret is optional so Pods start without it (the DB user can only INSERT). This Secret is
+            # SOPS-encrypted in apps/portfolio/secrets/portfolio-views.enc.yaml; edit with
+            # `sops edit apps/portfolio/secrets/portfolio-views.enc.yaml`. See clusters/homelab/bootstrap/SECRETS-SOPS.md.
             - name: VIEWS_DATABASE_URL
               valueFrom:
                 secretKeyRef:
