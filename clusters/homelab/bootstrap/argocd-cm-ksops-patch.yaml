@@ -1,0 +1,16 @@
+# Merge patch for the argocd-cm ConfigMap: lets kustomize run the KSOPS exec plugin.
+# Hand-applied, not synced by ArgoCD. Plan: SECRETS-SOPS.md (step 12).
+#
+# Apply (from the repo root):
+#   kubectl -n argocd patch configmap argocd-cm --type merge --patch-file clusters/homelab/bootstrap/argocd-cm-ksops-patch.yaml
+#
+# Do NOT use `kubectl apply -f` on this file. It is a partial ConfigMap; apply would treat it as the whole
+# object and could drop argocd-cm's other keys (resource.exclusions, timeout.reconciliation, ...).
+# `patch --type merge` changes only data.kustomize.buildOptions.
+#
+# These flags apply to EVERY kustomize-based Application, not just the ones with secrets.
+#
+# Rollback: remove the key (the null makes a merge patch delete it):
+#   kubectl -n argocd patch configmap argocd-cm --type merge -p '{"data":{"kustomize.buildOptions":null}}'
+data:
+  kustomize.buildOptions: "--enable-alpha-plugins --enable-exec"

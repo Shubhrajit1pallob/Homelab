@@ -1,0 +1,61 @@
+# Strategic merge patch for Deployment argocd-repo-server: adds KSOPS (decrypts SOPS files during kustomize builds).
+# Hand-applied, not synced by ArgoCD. Plan: SECRETS-SOPS.md (steps 11-12).
+#
+# Prerequisite: the age PRIVATE key must exist as a Secret first, or the new pod stays in ContainerCreating:
+#   kubectl -n argocd create secret generic sops-age --from-file=keys.txt="$SOPS_AGE_KEY_FILE"
+#
+# Apply (from the repo root; also needs argocd-cm-ksops-patch.yaml applied):
+#   kubectl -n argocd patch deployment argocd-repo-server --patch-file clusters/homelab/bootstrap/argocd-repo-server-ksops-patch.yaml
+#
+# Rollback:
+#   kubectl -n argocd rollout undo deploy/argocd-repo-server
+#
+# The init container copies ONLY the ksops binary (`ksops install <dir>`). ArgoCD's bundled kustomize is left
+# alone; adding --with-kustomize would replace it. Re-check this patch after any ArgoCD upgrade: re-applying the
+# upstream install manifests drops it.
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: install-ksops
+          image: viaductoss/ksops:v4.5.1
+          command: ["ksops", "install", "/custom-tools"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            # The image's USER is the name "nonroot", which kubelet can't verify as non-root; use its numeric UID.
+            runAsUser: 65532
+            runAsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: custom-tools
+              mountPath: /custom-tools
+      containers:
+        - name: argocd-repo-server
+          env:
+            - name: SOPS_AGE_KEY_FILE
+              value: /sops-age/keys.txt
+          volumeMounts:
+            - name: custom-tools
+              mountPath: /usr/local/bin/ksops
+              subPath: ksops
+            - name: sops-age
+              mountPath: /sops-age
+              readOnly: true
+      volumes:
+        - name: custom-tools
+          emptyDir: {}
+        - name: sops-age
+          secret:
+            secretName: sops-age

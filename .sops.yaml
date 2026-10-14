@@ -1,0 +1,9 @@
+# SOPS creation rules. See clusters/homelab/bootstrap/SECRETS-SOPS.md.
+#
+# The age PUBLIC key below (made 2026-10-13) encrypts; anyone may encrypt with it. Only its private key, kept
+# in the password manager and in Secret argocd/sops-age, can decrypt. The private key never goes in this repo.
+creation_rules:
+  - path_regex: \.enc\.yaml$
+    # Only the values under data/stringData are encrypted; name, namespace and key names stay readable.
+    encrypted_regex: ^(data|stringData)$
+    age: age18gt54rusp05mv56288e6xel4mp6tqqq8cp4pyvmtzegcafe98qyswazjpz

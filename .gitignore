@@ -12,3 +12,7 @@ apps/postgres/secrets.yaml
 *.tfstate.*
 *.tfvars
 crash.log
+
+# SOPS decrypted/plaintext working copies - never commit
+*.dec.yaml
+*.plain.yaml
