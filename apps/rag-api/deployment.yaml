@@ -22,9 +22,12 @@ spec:
   # unreachable. maxSurge keeps rollouts gap-free.
   replicas: 1
   revisionHistoryLimit: 3
+  # component: api as well, so the selector never also matches the supabase-keepalive CronJob's pods (same name
+  # label, needed for the NetworkPolicy). A Deployment's selector can't change after creation: keep it as is.
   selector:
     matchLabels:
       app.kubernetes.io/name: rag-api
+      app.kubernetes.io/component: api
   strategy:
     type: RollingUpdate
     rollingUpdate:

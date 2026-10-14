@@ -1,5 +1,4 @@
-# PARKED. Enable by moving this file into clusters/homelab/applications/ (your commit, with git mv).
-# Prerequisites, in order:
+# ENABLED 2026-10-14 (moved from parked/). Go-live steps, in order:
 #   1. The rag-api repo's CI publishes ghcr.io/shubhrajit1pallob/rag-api:sha-<full commit sha>, and the GHCR
 #      package is set to PUBLIC (there is no imagePullSecret). Put that tag in apps/rag-api/kustomization.yaml
 #      (images: newTag); it covers the Deployment and the supabase-keepalive CronJob.
@@ -8,15 +7,18 @@
 #   3. `kubectl apply -f clusters/homelab/bootstrap/cluster-in-cluster.yaml` (rag-api is already in its
 #      `namespaces`), or the sync fails with `namespace "rag-api" is not managed`.
 #   4. git mv this file into clusters/homelab/applications/, push, and hard-refresh the root app.
-#   5. Fill apps/rag-api/secrets/rag-api-secrets.enc.yaml with `sops edit` (5 keys, see the header of
-#      apps/rag-api/deployment.yaml) and add rag-api-key to the portfolio generator
-#      (apps/portfolio/secrets/ksops-generator.yaml; it holds the QUERY key and switches the public chat on),
-#      then restart the portfolio. See clusters/homelab/bootstrap/SECRETS-SOPS.md.
+#   5. apps/rag-api/secrets/rag-api-secrets.enc.yaml holds real values (filled with `sops edit` on 2026-10-14;
+#      5 keys, see the header of apps/rag-api/deployment.yaml). ArgoCD decrypts it on the first sync. Check the pod
+#      is Running and `curl` /health through a port-forward.
 #   6. Load the site's content, from the Mac:
 #        kubectl -n rag-api port-forward svc/rag-api 8000:8000
-#        # in the portfolio repo, with the ADMIN key:
+#        # in the portfolio repo, with the ADMIN key. RAG_API_KEY is the export script's own env var name;
+#        # here it carries rag-api's RAG_ADMIN_API_KEY, because only the admin key may add documents:
 #        RAG_API_URL=http://localhost:8000 RAG_API_KEY=<admin key> python -m app.rag_export --dry-run
 #      Review the output, then run it again without --dry-run.
+#   7. LAST, switch the public chat on: add ./secrets/rag-api-key.enc.yaml (the QUERY key) to
+#      apps/portfolio/secrets/ksops-generator.yaml, push, then restart the portfolio. Not earlier: the chat
+#      launcher appears to visitors as soon as the portfolio has RAG_API_KEY. See SECRETS-SOPS.md.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

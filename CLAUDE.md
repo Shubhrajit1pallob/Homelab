@@ -46,12 +46,15 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
   Adding a new directory requires a new Application file.
 - Ordering uses sync waves (cert-manager wave 0 first). Applications that use CRDs installed by another chart
   (`cert-manager-config`, `monitoring-config`) add `retry` and `SkipDryRunOnMissingResource=true`.
-- Enabled now: `portfolio`, `cert-manager`, `cert-manager-config`, `argocd-config`.
-- Parked: `cloudflared` (needs a tunnel cutover,
-  see its header), `kube-prometheus-stack` + `monitoring-config`, and `elk` (**never enable on this
-  hardware**: ~2.6 GiB of requests), and `rag-api` (written 2026-10-09, updated 2026-10-12 for split
-  query/admin keys and a timeout budget; waits on a public GHCR image, the Supabase tables incl. `query_usage`,
-  and two hand-made Secrets; the six steps are in its header).
+- Enabled now: `portfolio`, `cert-manager`, `cert-manager-config`, `argocd-config`, `kube-prometheus-stack` +
+  `monitoring-config`, and `rag-api` (enabled 2026-10-14, image v0.1.0).
+  - rag-api's Secrets are SOPS-encrypted in `apps/rag-api/secrets/`. The portfolio's chat key is in
+    `apps/portfolio/secrets/rag-api-key.enc.yaml` and is switched on separately (step 7 in the Application's
+    header).
+  - Releases come from rag-api GitHub Releases: its CI opens a PR bumping the one `images:` newTag line in
+    `apps/rag-api/kustomization.yaml`. Keep that entry's shape.
+- Parked: `cloudflared` (needs a tunnel cutover, see its header) and `elk` (**never enable on this
+  hardware**: ~2.6 GiB of requests).
 - cert-manager was adopted by ArgoCD on 2026-10-04 (chart v1.21.2, no reissue of the wildcard cert). A stale
   Helm release (revision 1) is still recorded; never run helm against cert-manager again (`helm upgrade`
   would fight ArgoCD; `helm uninstall` deletes the live resources). The ArgoCD UI IngressRoutes

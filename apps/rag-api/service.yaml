@@ -20,8 +20,8 @@ spec:
       targetPort: http
 ---
 # Non-secret settings (app/config.py reads them as env vars; names are case-insensitive). The secrets
-# (RAG_QUERY_API_KEY, RAG_ADMIN_API_KEY, VOYAGE_API_KEY, ANTHROPIC_API_KEY, DATABASE_URL) live in the hand-made
-# Secret rag-api-secrets, see the header of deployment.yaml.
+# (RAG_QUERY_API_KEY, RAG_ADMIN_API_KEY, VOYAGE_API_KEY, ANTHROPIC_API_KEY, DATABASE_URL) live in Secret
+# rag-api-secrets, SOPS-encrypted in secrets/rag-api-secrets.enc.yaml (see the header of deployment.yaml).
 apiVersion: v1
 kind: ConfigMap
 metadata:
