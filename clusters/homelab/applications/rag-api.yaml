@@ -19,6 +19,11 @@
 #   7. LAST, switch the public chat on: add ./secrets/rag-api-key.enc.yaml (the QUERY key) to
 #      apps/portfolio/secrets/ksops-generator.yaml, push, then restart the portfolio. Not earlier: the chat
 #      launcher appears to visitors as soon as the portfolio has RAG_API_KEY. See SECRETS-SOPS.md.
+#
+# Releases (after go-live): rag-api's CI opens a PR bumping the images: newTag in apps/rag-api/kustomization.yaml.
+# Merge any ConfigMap change the release needs in the same push. If the release changes chunking (v0.1.1 does),
+# re-run the portfolio's rag_export afterwards with the ADMIN key over port-forward (step 6); docs come back
+# content_updated.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
