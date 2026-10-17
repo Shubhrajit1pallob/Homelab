@@ -6,12 +6,19 @@ resources:
   - deployment.yaml
   - networkpolicy.yaml
   - cronjob.yaml
+# ConfigMap rag-api-config-<content hash>, from config.env. The hash suffix means any settings change renames
+# it, and kustomize updates the Deployment's configMapRef, so the pods roll out on their own.
+configMapGenerator:
+  - name: rag-api-config
+    # Needed: kustomize only rewrites the Deployment's reference when the namespaces match.
+    namespace: rag-api
+    envs:
+      - config.env
 # Secret rag-api-secrets, SOPS-encrypted in secrets/ (see clusters/homelab/bootstrap/SECRETS-SOPS.md).
 generators:
   - secrets/ksops-generator.yaml
 # The rag-api image tag, set once here for the Deployment and the keepalive CronJob. Use the immutable
-# sha-<full commit> tag the rag-api repo's CI publishes. The placeholder can't pull, which is why the
-# Application is parked.
+# sha-<full commit> tag the rag-api repo's CI publishes; its bump-homelab PR edits only the newTag line.
 images:
   - name: ghcr.io/shubhrajit1pallob/rag-api
     newTag: sha-c7753c0b94dd1f0fbc32ce193dc54d3d4d6ec480

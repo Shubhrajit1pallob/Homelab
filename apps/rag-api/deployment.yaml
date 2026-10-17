@@ -73,6 +73,7 @@ spec:
               containerPort: 8000
 
           envFrom:
+            # Generated from config.env; kustomize appends the content hash to this name at build time.
             - configMapRef:
                 name: rag-api-config
             - secretRef:

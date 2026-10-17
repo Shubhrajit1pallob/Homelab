@@ -53,6 +53,8 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
     header).
   - Releases come from rag-api GitHub Releases: its CI opens a PR bumping the one `images:` newTag line in
     `apps/rag-api/kustomization.yaml`. Keep that entry's shape.
+  - rag-api's non-secret settings are in `apps/rag-api/config.env`, generated into a ConfigMap whose name
+    carries a content hash (`configMapGenerator`), so any edit rolls the pods on its own.
 - Parked: `cloudflared` (needs a tunnel cutover, see its header) and `elk` (**never enable on this
   hardware**: ~2.6 GiB of requests).
 - cert-manager was adopted by ArgoCD on 2026-10-04 (chart v1.21.2, no reissue of the wildcard cert). A stale
