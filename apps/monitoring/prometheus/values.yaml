@@ -101,9 +101,8 @@ prometheus-node-exporter:
     - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($|/)
 
 grafana:
-  # The admin login comes from a Secret created by hand (never commit a password here):
-  #   kubectl -n monitoring create secret generic grafana-admin \
-  #     --from-literal=admin-user=admin --from-literal=admin-password=...
+  # The admin login comes from Secret grafana-admin, SOPS-encrypted in secrets/grafana-admin.enc.yaml (edit with
+  # `sops edit`; see clusters/homelab/bootstrap/SECRETS-SOPS.md). Never put a password in this file.
   admin:
     existingSecret: grafana-admin
     userKey: admin-user

@@ -1,8 +1,6 @@
-# PARKED. Enable by moving this file into clusters/homelab/applications/ (your commit).
-# Prerequisites: create the namespace and the Grafana admin secret first, e.g.
-#   kubectl create namespace monitoring
-#   kubectl -n monitoring create secret generic grafana-admin \
-#     --from-literal=admin-user=admin --from-literal=admin-password=<read it silently, don't paste in chat>
+# Enabled 2026-10-04. Grafana's admin login is Secret grafana-admin, SOPS-encrypted in
+# apps/monitoring/prometheus/secrets/ and created by the monitoring-config app (since 2026-10-17; it was made by
+# hand before). On a rebuild, Grafana waits in CreateContainerConfigError until monitoring-config has synced it.
 # Expected cost: roughly 1 GiB of RAM on shubmedia. Enable AFTER the portfolio, one app at a time.
 apiVersion: argoproj.io/v1alpha1
 kind: Application

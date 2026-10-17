@@ -1,6 +1,7 @@
 # Secrets in Git with SOPS + age, decrypted by ArgoCD (KSOPS)
 
-Plan written 2026-10-13. Nothing is built yet; this file becomes the runbook once it is.
+Live since 2026-10-14. The **Runbook** below is for day-to-day use; the plan and build log after it record how
+it was set up and why.
 
 ## Goal
 
@@ -18,6 +19,107 @@ ArgoCD repo-server: kustomize build → KSOPS generator → sops decrypts with t
    ▼
 normal Secret rag-api-secrets in ns rag-api (and the others)
 ```
+
+## Runbook
+
+Every command runs from the repo root on the Mac, with `SOPS_AGE_KEY_FILE=$HOME/.config/sops/age/keys.txt`
+set (it's in `~/.zshrc`; if `sops` says "no identity matched", that variable is missing in this terminal).
+Never write a decrypted file to disk; `*.dec.yaml` and `*.plain.yaml` are gitignored as a safety net only.
+
+**Encrypted Secrets today:**
+
+| Secret | Namespace | File | Read by |
+|---|---|---|---|
+| `rag-api-secrets` (5 keys) | rag-api | `apps/rag-api/secrets/rag-api-secrets.enc.yaml` | rag-api Deployment, keepalive CronJob |
+| `rag-api-key` (query key) | portfolio | `apps/portfolio/secrets/rag-api-key.enc.yaml` | portfolio Deployment |
+| `portfolio-views` | portfolio | `apps/portfolio/secrets/portfolio-views.enc.yaml` | portfolio Deployment |
+| `grafana-supabase` | monitoring | `apps/monitoring/prometheus/secrets/grafana-supabase.enc.yaml` | Grafana |
+| `grafana-admin` (since 2026-10-17) | monitoring | `apps/monitoring/prometheus/secrets/grafana-admin.enc.yaml` | Grafana |
+
+Still hand-made (phase 6): `tunnel-token`, `cloudflare-api-token-secret`.
+
+### Change a value
+1. `sops edit <file>.enc.yaml` (opens the decrypted copy in your editor; saving re-encrypts it).
+2. `scripts/check-sops-encrypted.sh`, then commit and push.
+3. After ArgoCD syncs (~10 min, or press Refresh on the app), **restart the consumer**: env vars are read only
+   when a pod starts, and these Secrets have no hash suffix, so nothing restarts on its own. For example
+   `kubectl -n rag-api rollout restart deploy/rag-api`. Grafana:
+   `kubectl -n monitoring rollout restart deploy/kube-prometheus-stack-grafana`.
+
+### Add a new Secret
+1. Write it as `apps/<app>/secrets/<name>.enc.yaml`: a normal `kind: Secret` with `stringData:` and the value
+   `CHANGE_ME` for every key. The `.enc.yaml` name is what makes `.sops.yaml` match it.
+2. `sops -e -i apps/<app>/secrets/<name>.enc.yaml` (encrypting needs only the public key in `.sops.yaml`).
+3. `sops edit` it and put in the real values. `scripts/check-sops-encrypted.sh` fails while any `CHANGE_ME`
+   is left (when your key is set).
+4. Add it to the app's `secrets/ksops-generator.yaml` under `files:`, as `./secrets/<name>.enc.yaml`. The path
+   is relative to the **kustomization root**, not to the generator file. If the app has no generator yet,
+   copy one from `apps/rag-api/secrets/`, give it a new `metadata.name`, and list it under `generators:` in
+   the app's `kustomization.yaml`.
+5. If the app deploys into a new namespace, that namespace must be in `cluster-in-cluster.yaml` first.
+6. Commit, push, and check the Secret exists with the right **key names**:
+   `kubectl -n <ns> get secret <name> -o jsonpath='{.data}' | python3 -c 'import json,sys;print(sorted(json.load(sys.stdin)))'`
+
+### Check a change before pushing
+- `scripts/check-sops-encrypted.sh` (every `*.enc.yaml` is encrypted, no placeholders).
+- Render without decrypting: copy the app folder to a scratch dir, delete its `generators:` block, then
+  `kubectl kustomize . | kubectl apply --dry-run=server -f -`. Plain `kubectl kustomize` on the real folder
+  fails, because it can't run the KSOPS plugin.
+- A full build needs `kustomize` and `ksops` on the Mac (`brew install kustomize`, plus the KSOPS release
+  binary). Its output **contains the decrypted values**, so never print it:
+  `kustomize build --enable-alpha-plugins --enable-exec apps/rag-api | grep -E '^kind:|^  name:'`
+
+### If a sync fails with a KSOPS / sops error
+Running pods are not affected; only apps with a generator stop syncing. Check, in order:
+1. The repo-server pod has the `install-ksops` init container and it exited 0:
+   `kubectl -n argocd get pod -l app.kubernetes.io/name=argocd-repo-server -o jsonpath='{.items[0].status.initContainerStatuses[*].state}'`
+2. `argocd-cm` still has the build options:
+   `kubectl -n argocd get cm argocd-cm -o jsonpath='{.data.kustomize\.buildOptions}'` (expect
+   `--enable-alpha-plugins --enable-exec`).
+3. Secret `argocd/sops-age` exists with the key `keys.txt`.
+4. The file was encrypted for the current public key (`.sops.yaml`); a file encrypted for another key gives
+   "no identity matched" in the app's sync error.
+
+If 1 or 2 is missing, re-apply the patches (next section). Restart the repo-server after fixing 3:
+`kubectl -n argocd rollout restart deploy/argocd-repo-server`.
+
+**Break-glass** (a Secret must change NOW and KSOPS can't be fixed quickly): apply it straight from the
+encrypted file, so the plaintext only exists in the pipe:
+`sops -d apps/<app>/secrets/<name>.enc.yaml | kubectl apply -f -`. ArgoCD sees the same content once KSOPS
+works again, so there's nothing to undo. Don't use `kubectl create secret` by hand; it drifts from Git.
+
+### After an ArgoCD upgrade (or any re-apply of the upstream install manifests)
+The install overwrites the repo-server Deployment and can reset `argocd-cm`, which removes KSOPS. Right after
+the upgrade:
+```bash
+kubectl -n argocd patch configmap argocd-cm --type merge --patch-file clusters/homelab/bootstrap/argocd-cm-ksops-patch.yaml
+kubectl -n argocd patch deployment argocd-repo-server --patch-file clusters/homelab/bootstrap/argocd-repo-server-ksops-patch.yaml
+```
+Then run the checks above and confirm every app is Synced/Healthy. Also re-apply the other hand-made ArgoCD
+tuning in this folder (see `README.md` here). Before a major upgrade, check the KSOPS README for the supported
+ArgoCD/kustomize versions and bump the init container's image tag if needed.
+
+### Rebuilding the cluster
+After ArgoCD is installed and before `root-app.yaml` is applied:
+1. `kubectl -n argocd create secret generic sops-age --from-file=keys.txt="$SOPS_AGE_KEY_FILE"`
+   (the key is also in your password manager).
+2. Apply both patches as above, and wait for the new repo-server pod.
+3. Apply `cluster-in-cluster.yaml`, then `root-app.yaml`.
+
+### Rotating the age key
+Do this if the private key might have leaked, or on a schedule you choose.
+1. `age-keygen -o ~/.config/sops/age/new-keys.txt`, and note the new public key.
+2. Put the new public key in `.sops.yaml` in place of the old one.
+3. Make sops able to read with BOTH keys for now:
+   `cat ~/.config/sops/age/keys.txt ~/.config/sops/age/new-keys.txt > ~/.config/sops/age/both.txt`, then
+   `SOPS_AGE_KEY_FILE=~/.config/sops/age/both.txt sops updatekeys -y <file>` for every `*.enc.yaml`.
+4. Replace the cluster copy with the **new** key and restart the repo-server:
+   `kubectl -n argocd create secret generic sops-age --from-file=keys.txt=$HOME/.config/sops/age/new-keys.txt --dry-run=client -o yaml | kubectl apply -f -`,
+   then `kubectl -n argocd rollout restart deploy/argocd-repo-server`.
+5. Commit and push the re-keyed files; hard-refresh the apps and check they're Synced.
+6. Make `new-keys.txt` your `keys.txt`, delete `both.txt`, update the password manager.
+7. **If the old key leaked, also change every secret value** (API keys, DB passwords): old commits in the
+   public history are still readable with the old key.
 
 ## Facts this plan builds on (checked 2026-10-13)
 
@@ -63,20 +165,19 @@ normal Secret rag-api-secrets in ns rag-api (and the others)
 | D5 | Order | SOPS goes live **before** rag-api, so its Secrets are never made by hand |
 | D6 | Existing hand-made Secrets (grafana-admin, cloudflare token, tunnel token) | migrate later, one at a time |
 
-## Files that will exist
+## Files
 
 ```
 .sops.yaml                                           # creation rule: *.enc.yaml, age public key, data/stringData only
 clusters/homelab/bootstrap/argocd-cm-ksops-patch.yaml          # merge patch for argocd-cm (applied by hand)
 clusters/homelab/bootstrap/argocd-repo-server-ksops-patch.yaml # strategic patch: init container, ksops, age key mount
 scripts/check-sops-encrypted.sh                      # refuses a commit with a *.enc.yaml that isn't encrypted
-infrastructure/argocd/secrets/sops-smoke.enc.yaml    # phase 3 test, removed afterwards
 apps/rag-api/secrets/{rag-api-secrets.enc.yaml, ksops-generator.yaml}
 apps/portfolio/secrets/{rag-api-key.enc.yaml, portfolio-views.enc.yaml, ksops-generator.yaml}
 apps/monitoring/prometheus/secrets/{grafana-supabase.enc.yaml, ksops-generator.yaml}
 ```
 
-## Step-by-step
+## Build log (phases 0-4 done 2026-10-13/14, phase 5 done 2026-10-17, phase 6 open)
 
 **Who does each step:**
 - **You** do the git work, run any `kubectl` that changes the cluster, and handle every real secret value.
@@ -170,7 +271,7 @@ apps/monitoring/prometheus/secrets/{grafana-supabase.enc.yaml, ksops-generator.y
     - after you restart Grafana and the portfolio, the Supabase datasource works and the view counter writes
       rows.
 
-### Phase 5: Docs (Worker)
+### Phase 5: Docs (done 2026-10-17: the Runbook above, and CLAUDE.md)
 23. Turn this file into the runbook:
     - add a secret;
     - rotate a value;
@@ -184,7 +285,7 @@ apps/monitoring/prometheus/secrets/{grafana-supabase.enc.yaml, ksops-generator.y
     - "Things that live only in the cluster" becomes `sops-age` plus the three not-yet-migrated Secrets;
     - remove "There is no SOPS".
 
-### Phase 6: Later, one at a time
+### Phase 6: Later, one at a time (open)
 25. Migrate `grafana-admin`, then `tunnel-token`, then `cloudflare-api-token-secret` (last, because cert renewals
     depend on it). For each: encrypt it into Git, let ArgoCD take over the existing Secret, restart the consumer,
     verify.

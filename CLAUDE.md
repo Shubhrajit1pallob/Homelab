@@ -13,9 +13,14 @@ until it is committed and pushed, and nothing is deployed to the cluster by this
 ## Validating changes
 
 ```bash
-# Render any directory an Application points at
-kubectl kustomize apps/portfolio
+# Render any directory an Application points at (only works for dirs WITHOUT a KSOPS `generators:` entry)
 kubectl kustomize infrastructure/cert-manager
+
+# Dirs with SOPS secrets (apps/portfolio, apps/rag-api, apps/monitoring/prometheus): plain `kubectl kustomize`
+# fails on the KSOPS plugin. Copy the dir to a scratch folder, delete its `generators:` block, then render and
+# dry-run that copy. A full `kustomize build --enable-alpha-plugins --enable-exec` (needs kustomize + ksops on
+# the Mac) prints DECRYPTED values, so never show its output; pipe it through `grep -E '^kind:|^  name:'`.
+scripts/check-sops-encrypted.sh   # every *.enc.yaml is really encrypted (and has no CHANGE_ME, if a key is set)
 
 # Validate Application files against the live cluster's CRDs (server-side dry-run changes nothing)
 kubectl apply --dry-run=server -f clusters/homelab/root-app.yaml -f clusters/homelab/applications/
@@ -113,11 +118,14 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
 
 ## Things that live only in the cluster (not in Git)
 
-- Secrets created by hand: `cloudflare-api-token-secret` (ns `cert-manager`, key `api-token`), `tunnel-token`
-  (ns `kube-system`, key `token`), `grafana-admin` (ns `monitoring`). Planned, for the chatbot and view
-  counter (commands in each manifest's comments): `rag-api-secrets` (ns `rag-api`, 5 keys incl. the query and
-  admin API keys), `rag-api-key` (ns `portfolio`, the QUERY key only), `portfolio-views` (ns `portfolio`),
-  `grafana-supabase` (ns `monitoring`). There is no SOPS or sealed-secrets.
+- App Secrets are in Git, SOPS-encrypted (age) in `apps/<app>/secrets/*.enc.yaml` and decrypted by ArgoCD with
+  KSOPS: `rag-api-secrets`, `rag-api-key`, `portfolio-views`, `grafana-supabase`, `grafana-admin`. Runbook (change, add, rotate,
+  break-glass, ArgoCD upgrade): `clusters/homelab/bootstrap/SECRETS-SOPS.md`. Never read the age private key or
+  print decrypted values.
+- Only in the cluster: `argocd/sops-age` (the age private key, "secret zero"; also in the user's password
+  manager), the KSOPS patches on `argocd-cm` and `argocd-repo-server` (re-apply after any ArgoCD upgrade), and
+  two Secrets still created by hand (to migrate, phase 6): `cloudflare-api-token-secret` (ns `cert-manager`,
+  key `api-token`) and `tunnel-token` (ns `kube-system`, key `token`).
   `apps/postgres/secrets.yaml` is plaintext and gitignored.
 - ArgoCD's `server.insecure: "true"` in the `argocd-cmd-params-cm` ConfigMap was patched in by hand.
 - **The remote is public and earlier history contains leaked credentials** (Postgres passwords, a Traefik
