@@ -21,4 +21,4 @@ generators:
 # sha-<full commit> tag the rag-api repo's CI publishes; its bump-homelab PR edits only the newTag line.
 images:
   - name: ghcr.io/shubhrajit1pallob/rag-api
-    newTag: sha-6bdbf3bb329060d284c22826d2e022dbc12a181a
+    newTag: sha-599feb5bbf242e0494c200bcaf1a1d9c15be16ad
