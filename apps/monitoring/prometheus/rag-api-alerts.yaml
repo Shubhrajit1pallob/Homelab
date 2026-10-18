@@ -1,0 +1,67 @@
+# rag-api alert rules. Alertmanager is disabled, so these only show in Prometheus (Alerts page) and Grafana;
+# nothing is sent anywhere yet. Metric names come from rag-api's metrics contract (v0.3.0+).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: rag-api-alerts
+  namespace: monitoring
+spec:
+  groups:
+    - name: rag-api
+      rules:
+        - alert: RagApiDown
+          # absent(... == 1) also fires when the target disappears entirely (no pod, Service or ServiceMonitor),
+          # not only when a scrape fails. If port 9090 can't bind, the API still serves but this fires.
+          expr: |
+            absent(up{job="rag-api"} == 1)
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "rag-api metrics target is down"
+            description: "Prometheus can't scrape rag-api:9090. The chat may be down, or only the metrics server failed to start (check the pod log)."
+
+        - alert: RagApiUpstreamErrors
+          expr: |
+            sum by (service) (increase(rag_upstream_errors_total[15m])) > 3
+          labels:
+            severity: warning
+          annotations:
+            summary: "rag-api: {{ $labels.service }} errors"
+            description: "{{ $value | printf \"%.0f\" }} failed calls to {{ $labels.service }} in 15 minutes (visitors got a 503)."
+
+        - alert: RagApiDailyBudgetHit
+          # The DAILY_QUERY_LIMIT (config.env) was reached: popularity or abuse. Resets at 00:00 UTC.
+          expr: |
+            sum(increase(rag_query_outcomes_total{outcome="budget_rejected"}[1h])) > 0
+          labels:
+            severity: warning
+          annotations:
+            summary: "rag-api daily question limit reached"
+            description: "{{ $value | printf \"%.0f\" }} questions were rejected in the last hour because the daily cap was hit."
+
+        - alert: RagApiCacheErrors
+          # Cache failures are swallowed (answers still work, uncached), so this is the only sign the answer_cache
+          # table or its grants are broken.
+          expr: |
+            sum by (operation) (increase(rag_cache_errors_total[15m])) > 0
+          labels:
+            severity: warning
+          annotations:
+            summary: "rag-api answer cache failing ({{ $labels.operation }})"
+            description: "Cache {{ $labels.operation }} failed {{ $value | printf \"%.0f\" }} times in 15 minutes. Answers still work but every question is paid for."
+
+        - alert: SupabaseKeepaliveStale
+          # From kube-state-metrics; no rag-api change needed. Supabase pauses a free project after a week idle.
+          # Time since the last SUCCESS, not "a failed Job exists": failed Jobs linger (failedJobsHistoryLimit), so
+          # that would keep firing after later runs succeed. Also catches never-ran, suspended, or a deleted
+          # CronJob (the absent() part). Schedule is daily 09:23 UTC; 26h leaves slack for the start deadline.
+          expr: |
+            (time() - kube_cronjob_status_last_successful_time{namespace="rag-api", cronjob="supabase-keepalive"}) > 26 * 3600
+            or absent(kube_cronjob_status_last_successful_time{namespace="rag-api", cronjob="supabase-keepalive"})
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Supabase keepalive hasn't succeeded in over 26h"
+            description: "Check `kubectl -n rag-api get jobs` and the newest job's log. Supabase pauses the free project after about a week without activity."

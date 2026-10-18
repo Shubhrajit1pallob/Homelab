@@ -1,5 +1,5 @@
 # rag-api holds paid API keys and the database credentials, so it is locked down both ways:
-#   ingress: only the portfolio Pods, on 8000
+#   ingress: only the portfolio Pods, on 8000; and Prometheus (monitoring namespace), on 9090 (metrics)
 #   egress:  DNS to CoreDNS, then HTTPS (Voyage, Anthropic) and Postgres (Supabase session pooler, 5432)
 #            to addresses OUTSIDE the cluster and tailnet only
 # Enforced by k3s's embedded network-policy controller. NOT YET TESTED here (same as apps/portfolio): after
@@ -38,6 +38,28 @@ spec:
       ports:
         - protocol: TCP
           port: 8000
+---
+# Prometheus scrapes /metrics on 9090 (rag-api v0.3.0+). Same rule as the portfolio's; any pod in `monitoring`.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-monitoring-to-metrics
+  namespace: rag-api
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: rag-api
+      app.kubernetes.io/component: api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9090
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

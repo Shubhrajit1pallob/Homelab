@@ -1,0 +1,235 @@
+# "rag-api" dashboard, loaded by Grafana's sidecar (label grafana_dashboard: "1"). Reads rag-api's own metrics
+# (rag-api v0.3.0+, scraped by rag-api-servicemonitor.yaml) from the default Prometheus datasource.
+# Cache hit ratio = hits / (hits + misses); budget_rejected and cache_disabled are left out of it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-rag-api
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  rag-api.json: |
+    {
+      "title": "rag-api",
+      "uid": "rag-api",
+      "schemaVersion": 38,
+      "refresh": "1m",
+      "time": {
+        "from": "now-24h",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Target up",
+          "type": "stat",
+          "gridPos": {
+            "x": 0,
+            "y": 0,
+            "w": 4,
+            "h": 5
+          },
+          "targets": [
+            {
+              "expr": "max(up{job=\"rag-api\"})",
+              "legendFormat": "up",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "0": {
+                      "text": "DOWN",
+                      "color": "red"
+                    },
+                    "1": {
+                      "text": "UP",
+                      "color": "green"
+                    }
+                  }
+                }
+              ],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "green",
+                    "value": 1
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": 2,
+          "title": "Questions in range, by outcome",
+          "type": "stat",
+          "gridPos": {
+            "x": 4,
+            "y": 0,
+            "w": 12,
+            "h": 5
+          },
+          "targets": [
+            {
+              "expr": "sum by (outcome) (increase(rag_query_outcomes_total[$__range]))",
+              "legendFormat": "{{outcome}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            }
+          }
+        },
+        {
+          "id": 3,
+          "title": "Cache hit ratio (1h)",
+          "type": "stat",
+          "gridPos": {
+            "x": 16,
+            "y": 0,
+            "w": 8,
+            "h": 5
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(rag_query_outcomes_total{outcome=\"cache_hit\"}[1h])) / (sum(rate(rag_query_outcomes_total{outcome=\"cache_hit\"}[1h])) + sum(rate(rag_query_outcomes_total{outcome=\"cache_miss\"}[1h])))",
+              "legendFormat": "hit ratio",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit"
+            }
+          }
+        },
+        {
+          "id": 4,
+          "title": "Requests/s by route and status (no /health)",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 0,
+            "y": 5,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "expr": "sum by (route, status) (rate(rag_http_requests_total{route!=\"/health\"}[5m]))",
+              "legendFormat": "{{route}} {{status}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            }
+          }
+        },
+        {
+          "id": 5,
+          "title": "p95 latency by route (no /health)",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 12,
+            "y": 5,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum by (le, route) (rate(rag_http_request_duration_seconds_bucket{route!=\"/health\"}[5m])))",
+              "legendFormat": "{{route}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            }
+          }
+        },
+        {
+          "id": 6,
+          "title": "Questions per day by outcome",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 0,
+            "y": 13,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "expr": "sum by (outcome) (increase(rag_query_outcomes_total[1d]))",
+              "legendFormat": "{{outcome}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            }
+          }
+        },
+        {
+          "id": 7,
+          "title": "Upstream errors (1h) by service",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 12,
+            "y": 13,
+            "w": 6,
+            "h": 8
+          },
+          "targets": [
+            {
+              "expr": "sum by (service) (increase(rag_upstream_errors_total[1h]))",
+              "legendFormat": "{{service}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            }
+          }
+        },
+        {
+          "id": 8,
+          "title": "Cache errors (1h) by operation",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 18,
+            "y": 13,
+            "w": 6,
+            "h": 8
+          },
+          "targets": [
+            {
+              "expr": "sum by (operation) (increase(rag_cache_errors_total[1h]))",
+              "legendFormat": "{{operation}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            }
+          }
+        }
+      ]
+    }

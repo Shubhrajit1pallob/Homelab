@@ -71,6 +71,9 @@ spec:
           ports:
             - name: http
               containerPort: 8000
+            # Prometheus metrics (METRICS_PORT in config.env); only the monitoring namespace may reach it.
+            - name: metrics
+              containerPort: 9090
 
           envFrom:
             # Generated from config.env; kustomize appends the content hash to this name at build time.

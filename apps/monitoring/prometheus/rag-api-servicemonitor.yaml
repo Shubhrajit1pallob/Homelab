@@ -1,0 +1,20 @@
+# Scrapes rag-api's Prometheus metrics (rag-api v0.3.0+, METRICS_PORT=9090 in apps/rag-api/config.env). It's a
+# separate port from the API's 8000, has no auth, and only the `monitoring` namespace may reach it
+# (NetworkPolicy allow-monitoring-to-metrics in apps/rag-api). The Service selects component: api only, so the
+# supabase-keepalive CronJob's pods are never scraped. The job label is "rag-api" (the Service name).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: rag-api
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - rag-api
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rag-api
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 60s

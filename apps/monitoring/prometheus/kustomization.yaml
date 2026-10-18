@@ -7,6 +7,9 @@ resources:
   - dashboard-configmap.yaml
   - portfolio-views-dashboard.yaml
   - portfolio-servicemonitor.yaml
+  - rag-api-servicemonitor.yaml
+  - rag-api-alerts.yaml
+  - rag-api-dashboard.yaml
   - grafana-route.yaml
 # Secret grafana-supabase, SOPS-encrypted in secrets/ (see clusters/homelab/bootstrap/SECRETS-SOPS.md).
 generators:

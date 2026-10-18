@@ -1,5 +1,5 @@
 # ClusterIP only: rag-api is never exposed through Traefik or the tunnel. Its one client is the portfolio's
-# /api/chat route, which reaches it at http://rag-api.rag-api.svc.cluster.local:8000.
+# /api/chat route, which reaches it at http://rag-api.rag-api.svc.cluster.local:8000. Port 9090 is metrics only.
 apiVersion: v1
 kind: Service
 metadata:
@@ -18,3 +18,8 @@ spec:
     - name: http
       port: 8000
       targetPort: http
+    # Scraped by Prometheus (ServiceMonitor rag-api in apps/monitoring/prometheus); NetworkPolicy
+    # allow-monitoring-to-metrics limits it to the monitoring namespace.
+    - name: metrics
+      port: 9090
+      targetPort: metrics
