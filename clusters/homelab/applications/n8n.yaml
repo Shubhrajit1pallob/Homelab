@@ -1,0 +1,35 @@
+# PARKED. n8n for tenant "shawn" (apps/n8n/tenants/shawn). For now DATABASE ONLY: a CNPG Postgres Cluster with
+# Barman backups to R2; the n8n app itself comes later. Plan and limits: apps/n8n/REQUIREMENTS.md.
+# Needs cnpg-operator and cnpg-barman-plugin (both enabled) and n8n in the cluster Secret's namespaces (done).
+# To enable: FIRST fill the R2 keys with
+#   sops edit apps/n8n/tenants/shawn/secrets/n8n-r2-backup.enc.yaml
+# and commit that, THEN git mv this file into clusters/homelab/applications/, push, and hard-refresh root.
+# Pushing the move with CHANGE_ME keys would start WAL archiving to R2 with bad credentials.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: n8n
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Shubhrajit1pallob/Homelab.git
+    targetRevision: main
+    path: apps/n8n/tenants/shawn
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: n8n
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - SkipDryRunOnMissingResource=true # CNPG / Barman / PodMonitor CRDs come from other Applications
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

@@ -1,0 +1,41 @@
+# Where the Barman Cloud plugin (clusters/homelab/applications/cnpg-barman-plugin.yaml) sends n8n-db's WAL and
+# base backups: Cloudflare R2 bucket n8n-backup, one prefix per tenant (set by the tenant overlay).
+# No Prune/Delete protection here, unlike the Cluster: deleting this object doesn't touch the backups already in
+# R2, and it is recreated from Git.
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: n8n-backup-store
+spec:
+  configuration:
+    destinationPath: s3://n8n-backup/PATCHED-BY-TENANT-OVERLAY/
+    endpointURL: https://0e062f85702981f3e177ef9616c42ec0.r2.cloudflarestorage.com
+    # R2 API token (Object Read & Write, this bucket only), SOPS-encrypted in the tenant's secrets/.
+    s3Credentials:
+      accessKeyId:
+        name: n8n-r2-backup
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: n8n-r2-backup
+        key: ACCESS_SECRET_KEY
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+  retentionPolicy: "14d"
+  instanceSidecarConfiguration:
+    # The sidecar runs inside each Postgres pod (counts against the namespace quota).
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        memory: 256Mi
+    # Newer boto3 adds checksum headers that some S3-compatible stores reject; the plugin docs give this
+    # workaround (https://cloudnative-pg.io/plugin-barman-cloud/docs/object_stores/ , "S3-Compatible Storage
+    # Providers", v0.15.1; plugin-barman-cloud issue #393).
+    env:
+      - name: AWS_REQUEST_CHECKSUM_CALCULATION
+        value: when_required
+      - name: AWS_RESPONSE_CHECKSUM_VALIDATION
+        value: when_required

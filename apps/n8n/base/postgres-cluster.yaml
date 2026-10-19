@@ -1,0 +1,57 @@
+# n8n's Postgres, run by the CNPG operator (clusters/homelab/applications/cnpg-operator.yaml). One instance on
+# local-path storage on agent-1: no HA, so the R2 backups (objectstore.yaml, scheduledbackup.yaml) are the
+# safety net. See apps/n8n/REQUIREMENTS.md.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: n8n-db
+  annotations:
+    # Removing this file from Git or deleting the Application must never delete the database. Its PVC is owned
+    # by this Cluster, and local-path's reclaim policy is Delete, so deleting the Cluster deletes the data.
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  instances: 1
+  # PG 18: n8n supports 16, 17 and 18 (docs.n8n.io "Choose n8n's database"); CNPG 1.30 supports 14-18.
+  # "standard", not the operator's default "system" image: system images only add the in-core barman tools,
+  # which CNPG is phasing out. Backups here go through the Barman Cloud plugin's sidecar instead.
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.6-standard-trixie
+
+  # No password is written by us: CNPG generates Secret n8n-db-app (user n8n, password, host, uri ...), which
+  # the n8n Deployment will read later.
+  bootstrap:
+    initdb:
+      database: n8n
+      owner: n8n
+
+  storage:
+    size: 5Gi
+    storageClass: local-path
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+
+  # Sized for the 512Mi limit and a single n8n client.
+  postgresql:
+    parameters:
+      max_connections: "30"          # n8n's pool is small; each connection costs a few MB
+      shared_buffers: "64MB"         # ~1/8 of the limit (the usual 1/4 leaves too little for everything else)
+      effective_cache_size: "192MB"  # planner hint only, allocates nothing
+      work_mem: "2MB"                # per sort/hash, per query: 30 connections can't blow the limit
+      maintenance_work_mem: "32MB"   # VACUUM / CREATE INDEX
+      max_wal_size: "512MB"          # keeps pg_wal small on the 5Gi volume
+
+  # REQUIRED: agent-1 only (node-role=cloud), the always-on node. shubmedia is a laptop; server-1 is tainted.
+  affinity:
+    nodeSelector:
+      node-role: cloud
+
+  # WAL archiving and base backups go through the Barman Cloud plugin to the ObjectStore n8n-backup-store.
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: n8n-backup-store

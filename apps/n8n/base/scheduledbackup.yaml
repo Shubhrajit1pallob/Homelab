@@ -1,0 +1,23 @@
+# Weekly base backup of n8n-db to R2 (WAL is archived continuously in between, so any point in the last 14 days
+# can be restored).
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: n8n-db-weekly
+  annotations:
+    # After the Cluster (wave 0): ArgoCD's built-in health check for postgresql.cnpg.io/Cluster makes the sync
+    # wait until the Cluster is Healthy, so the `immediate` backup below never fires against a database that
+    # isn't up yet.
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  # CNPG's cron has a leading SECONDS field (robfig/cron, see `kubectl explain scheduledbackup.spec.schedule`):
+  # sec min hour day-of-month month day-of-week -> Sundays at 03:00 (the operator runs in UTC).
+  schedule: "0 0 3 * * 0"
+  # Take the first base backup as soon as this is created, so the backup path can be checked right after deploy.
+  immediate: true
+  backupOwnerReference: self
+  cluster:
+    name: n8n-db
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io

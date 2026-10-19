@@ -1,0 +1,20 @@
+# Tenant "shawn": the only n8n instance. Synced by clusters/homelab/parked/n8n.yaml. A new tenant is a copy of
+# this folder (new namespace, R2 prefix and Secrets) plus one Application; see apps/n8n/REQUIREMENTS.md.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: n8n
+resources:
+  - ../../base
+# Secret n8n-r2-backup, SOPS-encrypted in secrets/ (see clusters/homelab/bootstrap/SECRETS-SOPS.md).
+generators:
+  - secrets/ksops-generator.yaml
+patches:
+  # This tenant's prefix in the shared R2 bucket.
+  - target:
+      group: barmancloud.cnpg.io
+      kind: ObjectStore
+      name: n8n-backup-store
+    patch: |-
+      - op: replace
+        path: /spec/configuration/destinationPath
+        value: s3://n8n-backup/shawn/

@@ -1,0 +1,13 @@
+# Postgres metrics for Prometheus, which selects PodMonitors in every namespace (apps/monitoring/prometheus/values.yaml).
+# A plain PodMonitor because the Cluster's spec.monitoring.enablePodMonitor is deprecated in CNPG 1.30; this is
+# the shape the CNPG 1.30 monitoring docs give.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: n8n-db
+spec:
+  selector:
+    matchLabels:
+      cnpg.io/cluster: n8n-db
+  podMetricsEndpoints:
+    - port: metrics
