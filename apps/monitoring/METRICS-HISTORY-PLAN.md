@@ -38,7 +38,9 @@ other, but both are cheaper after phase 0.
 `/metrics` endpoint only) and server dry-run OK. Re-measured before the push: the regex matches **50,807** of
 **117,692** series. The chart's default `metricRelabelings` entry is kept in the list (a values list replaces
 the chart's, it doesn't merge). Every chart rule/dashboard using these families selects `job="apiserver"`.
-Post-push checks below still to do.
+**Done 2026-10-19** (pushed in `177ed65`): head series 117,254 → 66,321, Prometheus memory 629 → 404 MiB,
+ingest ~2,070 → ~1,220 samples/s, no restart, no duplicates left on any node. Spot checks of the API server,
+Kubelet and Compute Resources dashboards' queries all return data. Old copies on disk age out with retention.
 
 1. In `apps/monitoring/prometheus/values.yaml`, `kubelet.serviceMonitor.metricRelabelings`:
    - Drop by `__name__`, **only on the kubelet job's `/metrics` endpoint**:
