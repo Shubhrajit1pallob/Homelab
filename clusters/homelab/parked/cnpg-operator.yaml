@@ -1,0 +1,51 @@
+# PARKED until n8n is ready. CloudNativePG operator (chart cloudnative-pg 0.29.1, operator 1.30.1): manages
+# the Postgres `Cluster` that n8n will use. Cluster-wide, so it watches CNPG resources in every namespace.
+# To enable: first add cnpg-system to clusters/homelab/bootstrap/cluster-in-cluster.yaml (done 2026-10-19) and
+# `kubectl apply -f` it, THEN git mv this file into clusters/homelab/applications/, push, and hard-refresh root.
+# Watch server-1 memory (`kubectl top nodes`) during the first sync: it applies ~1.3 MB of CRDs (11).
+# Its mutating/validating webhooks use failurePolicy Fail: while the operator is down, creating or changing
+# CNPG resources is rejected, but running Postgres pods keep running.
+# Fallback: if agent-1's real memory stays above ~75% for a week after n8n is deployed, switch n8n to a plain
+# Postgres StatefulSet (pg_dump/restore) and remove this operator.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cnpg-operator
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://cloudnative-pg.github.io/charts
+    chart: cloudnative-pg
+    targetRevision: 0.29.1
+    helm:
+      valuesObject:
+        # The chart ships with resources: {}.
+        resources:
+          requests: {cpu: 10m, memory: 64Mi}
+          limits: {memory: 256Mi}
+        affinity:
+          nodeAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                preference:
+                  matchExpressions:
+                    - key: node-role
+                      operator: In
+                      values: ["cloud"]
+        # Our Prometheus selects PodMonitors from every namespace regardless of labels
+        # (apps/monitoring/prometheus/values.yaml). No Grafana dashboard for now.
+        monitoring:
+          podMonitorEnabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cnpg-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true # CNPG CRDs exceed the client-side apply annotation limit
