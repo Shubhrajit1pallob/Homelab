@@ -1,0 +1,53 @@
+# PARKED. CNPG Barman Cloud plugin (chart plugin-barman-cloud 0.8.1, plugin v0.15.1): WAL archiving and base
+# backups to Cloudflare R2, done by a sidecar the plugin injects into each Postgres pod. Enable with git mv into
+# clusters/homelab/applications/, push, and hard-refresh root.
+# Needs cnpg-operator (wave 0, same namespace cnpg-system) and cert-manager: the chart creates its own Issuer
+# and two Certificates for the plugin's TLS.
+# This sets only the plugin Deployment's resources; the sidecar's are set later on the ObjectStore.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cnpg-barman-plugin
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: https://cloudnative-pg.github.io/charts
+    chart: plugin-barman-cloud
+    targetRevision: 0.8.1
+    helm:
+      valuesObject:
+        # Keeps upstream's object names (deploy/plugin-barman-cloud); renaming after the first sync recreates them.
+        fullnameOverride: plugin-barman-cloud
+        # The chart ships with resources: {}.
+        resources:
+          requests: {cpu: 10m, memory: 32Mi}
+          limits: {memory: 128Mi}
+        affinity:
+          nodeAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                preference:
+                  matchExpressions:
+                    - key: node-role
+                      operator: In
+                      values: ["cloud"]
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cnpg-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true # same as cnpg-operator, for consistency
+      - SkipDryRunOnMissingResource=true # its Issuer/Certificate use cert-manager CRDs
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

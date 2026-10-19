@@ -1,8 +1,7 @@
-# PARKED until n8n is ready. CloudNativePG operator (chart cloudnative-pg 0.29.1, operator 1.30.1): manages
-# the Postgres `Cluster` that n8n will use. Cluster-wide, so it watches CNPG resources in every namespace.
-# To enable: first add cnpg-system to clusters/homelab/bootstrap/cluster-in-cluster.yaml (done 2026-10-19) and
-# `kubectl apply -f` it, THEN git mv this file into clusters/homelab/applications/, push, and hard-refresh root.
-# Watch server-1 memory (`kubectl top nodes`) during the first sync: it applies ~1.3 MB of CRDs (11).
+# CloudNativePG operator (chart cloudnative-pg 0.29.1, operator 1.30.1): manages the Postgres `Cluster` that
+# n8n will use. Cluster-wide, so it watches CNPG resources in every namespace. Enabled 2026-10-19 (measured
+# ~23-26Mi on agent-1).
+# On a rebuild, watch server-1 memory (`kubectl top nodes`) during the first sync: it applies ~1.3 MB of CRDs (11).
 # Its mutating/validating webhooks use failurePolicy Fail: while the operator is down, creating or changing
 # CNPG resources is rejected, but running Postgres pods keep running.
 # Fallback: if agent-1's real memory stays above ~75% for a week after n8n is deployed, switch n8n to a plain
