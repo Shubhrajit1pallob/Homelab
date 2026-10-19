@@ -34,6 +34,12 @@ other, but both are cheaper after phase 0.
 
 ## Phase 0: Trim the duplicated control-plane series
 
+**Status (2026-10-17):** written in `values.yaml`, rendered (`helm template`, drop lands on the kubelet
+`/metrics` endpoint only) and server dry-run OK. Re-measured before the push: the regex matches **50,807** of
+**117,692** series. The chart's default `metricRelabelings` entry is kept in the list (a values list replaces
+the chart's, it doesn't merge). Every chart rule/dashboard using these families selects `job="apiserver"`.
+Post-push checks below still to do.
+
 1. In `apps/monitoring/prometheus/values.yaml`, `kubelet.serviceMonitor.metricRelabelings`:
    - Drop by `__name__`, **only on the kubelet job's `/metrics` endpoint**:
      `(apiserver|etcd|workqueue|apiextensions|aggregator|authentication|authorization|admission|field_validation|flowcontrol|kine|serviceaccount|node_authorizer|watch_cache|grpc)_.*`.

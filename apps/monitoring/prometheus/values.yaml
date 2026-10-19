@@ -18,6 +18,24 @@ kubeControllerManager:
   enabled: false
 kubeProxy:
   enabled: false
+# K3s runs the apiserver, kine/etcd and controllers in the same process as the kubelet, so server-1's kubelet
+# /metrics endpoint re-exports every control-plane metric the `apiserver` job already scrapes: ~51k of ~118k
+# series (measured 2026-10-17), doubling Prometheus memory and disk. Drop them on the kubelet /metrics
+# endpoint only (cAdvisor, probes and the apiserver job are untouched). Every chart rule and dashboard that
+# reads these families selects job="apiserver", so nothing loses data. Kept: kubelet_*, rest_client_*,
+# storage_operation_*, volume_*, process_*, go_*. Plan: apps/monitoring/METRICS-HISTORY-PLAN.md (phase 0).
+# Rollback: delete the second entry.
+kubelet:
+  serviceMonitor:
+    metricRelabelings:
+      # Chart default (91.7.0), kept: a list here replaces the chart's list instead of merging with it.
+      - action: drop
+        sourceLabels: [__name__, le]
+        regex: (csi_operations|storage_operation_duration)_seconds_bucket;(0.25|2.5|15|25|120|600)(\.0)?
+      - action: drop
+        sourceLabels: [__name__]
+        regex: (apiserver|etcd|workqueue|apiextensions|aggregator|authentication|authorization|admission|field_validation|flowcontrol|kine|serviceaccount|node_authorizer|watch_cache|grpc)_.*
+
 defaultRules:
   rules:
     etcd: false

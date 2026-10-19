@@ -174,7 +174,8 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
   (~4.4 MB) were pre-applied by hand one at a time with server-side apply while watching server-1 memory;
   repeat that on any rebuild. Grafana 13 needs ~400Mi steady (now 384Mi/640Mi, sidecars 64Mi/128Mi; 256Mi
   caused liveness kills on startup). Measured after: server-1 ~53%, agent-1 ~27%, shubmedia ~58%; ArgoCD
-  controller ~152Mi -> ~337Mi; Prometheus ~115k series (mostly cAdvisor, a trimming candidate). Grafana is
+  controller ~152Mi -> ~337Mi; Prometheus ~115k series. Not cAdvisor (~3k): ~51k were K3s control-plane metrics duplicated on server-1's
+  kubelet `/metrics`; dropped there on 2026-10-17 (`kubelet.serviceMonitor.metricRelabelings` in values.yaml). Grafana is
   public via a tunnel hostname behind Cloudflare Access; `grafana-ts.` waits on the Tailscale port issue.
 - **SOC lab:** planning only. See `apps/soc-lab/PLAN.md` (same cluster, isolated namespaces, mandatory
   guardrails, AWS credits for temporary lab resources with budget guardrails). Phase 0 is next: secure the
