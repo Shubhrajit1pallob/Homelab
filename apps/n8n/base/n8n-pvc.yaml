@@ -7,6 +7,8 @@ metadata:
   name: n8n-data
   labels:
     app.kubernetes.io/name: n8n
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
 spec:
   storageClassName: local-path
   accessModes: ["ReadWriteOnce"]
