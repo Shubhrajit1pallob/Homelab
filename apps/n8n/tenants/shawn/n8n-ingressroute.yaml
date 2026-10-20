@@ -1,0 +1,33 @@
+# n8n for tenant "shawn". In the overlay, not base, because the hostname is the only tenant-specific part and a
+# whole file is simpler than patching match strings. Same convention as apps/monitoring/prometheus/grafana-route.yaml:
+#   n8n.shubhrajitpallob.dev  public through the Cloudflare tunnel (plain HTTP on the `web` entrypoint); Cloudflare
+#                             terminates TLS and Cloudflare Access does the login (configured in the dashboard)
+#   websecure                 the same name on Traefik's TLS entrypoint with the wildcard cert (default TLSStore)
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: n8n
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`n8n.shubhrajitpallob.dev`)
+      services:
+        - name: n8n
+          port: 5678
+  tls: {}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: n8n-http
+spec:
+  entryPoints:
+    - web
+  routes:
+    - kind: Rule
+      match: Host(`n8n.shubhrajitpallob.dev`)
+      services:
+        - name: n8n
+          port: 5678

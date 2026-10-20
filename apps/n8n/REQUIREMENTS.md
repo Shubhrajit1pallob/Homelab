@@ -1,6 +1,9 @@
 # n8n: requirements
 
-Status (2026-10-19): phase 1 (database) written, parked in `clusters/homelab/parked/n8n.yaml`. Nothing deployed.
+Status (2026-10-19): phase 1 (database) **done**, live through `clusters/homelab/applications/n8n.yaml`:
+`n8n-db-1` 2/2 on agent-1 (~145Mi), first base backup completed, WAL archiving on, objects in R2. Cloudflare
+Access is live on `n8n.shubhrajitpallob.dev`. Phase 2 (the n8n app, 2.43.8) is written in `base/` and the overlay;
+it deploys on the next push, after the encryption key is filled in.
 
 ## Purpose
 
@@ -28,11 +31,13 @@ agent-1 has 2 vCPU and ~5.4 GiB. Measured 2026-10-19: ~2.1 GiB used (37%); 704Mi
 | --- | --- | --- | --- |
 | cnpg-operator (cnpg-system) | 10m / 64Mi | 256Mi | ~26Mi |
 | cnpg-barman-plugin (cnpg-system) | 10m / 32Mi | 128Mi | ~10Mi |
-| Postgres `n8n-db` | 50m / 128Mi | 512Mi | - |
-| barman-cloud sidecar (in the Postgres pod) | 10m / 32Mi | 256Mi | - |
-| n8n (phase 2) | - / 256Mi | 1Gi | - |
+| Postgres `n8n-db` + barman-cloud sidecar (one pod) | 60m / 160Mi | 768Mi | ~145Mi |
+| n8n (phase 2) | 100m / 256Mi | 1Gi | - |
+| n8n task-runners sidecar (phase 2) | 50m / 64Mi | 256Mi | ~5Mi idle (launcher only) |
 
-The namespace's `ResourceQuota` (`base/quota.yaml`) caps one tenant at 500m / 768Mi requested and 2Gi of limits.
+Namespace total with n8n: 210m / 480Mi requested, 2Gi of limits (quota 2.5Gi), 2 PVCs / 6Gi.
+
+The namespace's `ResourceQuota` (`base/quota.yaml`) caps one tenant at 500m / 768Mi requested and 2.5Gi of limits.
 
 **Fallback rule:** if agent-1's real memory stays above ~75% for a week after n8n is deployed, replace CNPG with
 a plain Postgres StatefulSet (move the data with pg_dump/restore) and remove the operator and plugin.
@@ -54,8 +59,9 @@ a plain Postgres StatefulSet (move the data with pg_dump/restore) and remove the
 - Now: R2 API token for `n8n-r2-backup` (`ACCESS_KEY_ID`, `ACCESS_SECRET_KEY`; Object Read & Write, this
   bucket only).
 - Phase 2 and later:
-  - `N8N_ENCRYPTION_KEY`. Also keep it in the password manager: without it, a restored database's stored
-    credentials can't be decrypted.
+  - `N8N_ENCRYPTION_KEY` (`n8n-encryption`). Also keep it in the password manager: without it, a restored
+    database's stored credentials can't be decrypted.
+  - `N8N_RUNNERS_AUTH_TOKEN` (`n8n-runners`): shared by n8n and its task-runners sidecar. Regenerable at any time.
   - GitHub token (fine-grained, only the repos and permissions the workflows need).
   - A separate Anthropic API key with a spend limit, not rag-api's.
   - Gmail OAuth client.
@@ -63,9 +69,10 @@ a plain Postgres StatefulSet (move the data with pg_dump/restore) and remove the
 
 ## Exposure
 
-- `n8n.shubhrajitpallob.dev` through the Cloudflare tunnel (the tunnel route already exists).
+- `n8n.shubhrajitpallob.dev` through the Cloudflare tunnel (Traefik `web` entrypoint), plus `websecure` with the
+  wildcard cert, same convention as Grafana (`tenants/shawn/n8n-ingressroute.yaml`).
 - **A Cloudflare Access application for that hostname MUST exist before n8n is deployed**: the first visitor to
-  a fresh n8n becomes its owner.
+  a fresh n8n becomes its owner. Done 2026-10-19 (the hostname answers with a redirect to Cloudflare Access).
 - No public webhook path in phase 1 or 2.
 
 ## Known availability limits
@@ -76,13 +83,23 @@ a plain Postgres StatefulSet (move the data with pg_dump/restore) and remove the
 
 ## Phases
 
-1. **Database** (this): CNPG Cluster, ObjectStore, weekly ScheduledBackup, quota, R2 Secret.
-2. **n8n app**: Deployment, Service, IngressRoute, Cloudflare Access first.
+1. **Database** (done 2026-10-19): CNPG Cluster, ObjectStore, weekly ScheduledBackup, quota, R2 Secret.
+2. **n8n app** (written): Deployment (n8n + task-runners sidecar), PVC, Service, ServiceMonitor, IngressRoutes,
+   encryption-key and runner-token Secrets.
+   Cloudflare Access was set up first.
 3. **NetworkPolicies + a restore test.** NetworkPolicies are left out of phases 1-2 on purpose, so the database
    and backups are proven working first and two new things are never debugged at once.
 4. **Workflows**, in the order listed under Purpose.
 
 ## Open items
+
+- **Task runners: external mode** (decided 2026-10-19, before any GitHub, Anthropic or Gmail credentials are
+  added). n8n's default internal mode runs Code node scripts in a child process of n8n, which the docs call
+  "insecure by design": code that escapes the sandbox could read the encryption key, every stored credential and
+  the database. Instead an `n8nio/runners:<same version>-distroless` sidecar runs them, as UID 65532 with a
+  read-only root filesystem, holding only the runner auth token. Keep the runners image tag equal to n8n's on
+  every upgrade. Code the workflows run that comes from outside (PR text, email bodies) should still be treated
+  as untrusted input and never executed.
 
 - **Restore test** (phase 3): restore into a Cluster with a NEW name (for example `n8n-db-restore`) and point it
   at the old backups as its source. Restoring under the same name fails because its WAL archive path isn't

@@ -5,7 +5,14 @@ kind: Kustomization
 namespace: n8n
 resources:
   - ../../base
-# Secret n8n-r2-backup, SOPS-encrypted in secrets/ (see clusters/homelab/bootstrap/SECRETS-SOPS.md).
+  - n8n-ingressroute.yaml
+# This tenant's URLs, merged into the base ConfigMap n8n-config (same hashed name, so the pod rolls on a change).
+configMapGenerator:
+  - name: n8n-config
+    behavior: merge
+    envs:
+      - config.env
+# Secrets n8n-r2-backup and n8n-encryption, SOPS-encrypted in secrets/ (see clusters/homelab/bootstrap/SECRETS-SOPS.md).
 generators:
   - secrets/ksops-generator.yaml
 patches:

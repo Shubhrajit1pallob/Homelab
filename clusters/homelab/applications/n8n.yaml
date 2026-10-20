@@ -1,10 +1,8 @@
-# PARKED. n8n for tenant "shawn" (apps/n8n/tenants/shawn). For now DATABASE ONLY: a CNPG Postgres Cluster with
-# Barman backups to R2; the n8n app itself comes later. Plan and limits: apps/n8n/REQUIREMENTS.md.
-# Needs cnpg-operator and cnpg-barman-plugin (both enabled) and n8n in the cluster Secret's namespaces (done).
-# To enable: FIRST fill the R2 keys with
-#   sops edit apps/n8n/tenants/shawn/secrets/n8n-r2-backup.enc.yaml
-# and commit that, THEN git mv this file into clusters/homelab/applications/, push, and hard-refresh root.
-# Pushing the move with CHANGE_ME keys would start WAL archiving to R2 with bad credentials.
+# n8n for tenant "shawn" (apps/n8n/tenants/shawn). Plan and limits: apps/n8n/REQUIREMENTS.md.
+# Enabled 2026-10-19 with the database only (CNPG Cluster n8n-db, Barman backups to R2): verified that day,
+# first base backup completed and WAL archiving on. Phase 2 adds the n8n app itself (Deployment, Service,
+# IngressRoute, behind Cloudflare Access).
+# Needs cnpg-operator and cnpg-barman-plugin, and n8n in the cluster Secret's namespaces.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

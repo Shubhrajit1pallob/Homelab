@@ -1,0 +1,15 @@
+# n8n's folder (/home/node/.n8n): its settings file, filesystem binary data from executions, and caches.
+# Workflows, credentials and execution history are in Postgres, and the encryption key comes from a Secret,
+# so everything here can be regenerated: no Prune/Delete protection, unlike the database.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: n8n-data
+  labels:
+    app.kubernetes.io/name: n8n
+spec:
+  storageClassName: local-path
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi

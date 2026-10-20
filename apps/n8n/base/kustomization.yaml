@@ -9,3 +9,15 @@ resources:
   - podmonitor.yaml
   - objectstore.yaml
   - scheduledbackup.yaml
+  - n8n-pvc.yaml
+  - n8n-deployment.yaml
+  - n8n-service.yaml
+  - servicemonitor.yaml
+# ConfigMap n8n-config-<content hash>, from config.env (plus the tenant's config.env, merged in the overlay). The
+# hash suffix means any settings change renames it, and kustomize updates the Deployment's configMapRef, so the
+# pod restarts on its own. No `namespace:` here, unlike apps/rag-api: these resources don't set one either, and
+# the overlay's `namespace:` sets the same one on both, so the reference still matches.
+configMapGenerator:
+  - name: n8n-config
+    envs:
+      - config.env

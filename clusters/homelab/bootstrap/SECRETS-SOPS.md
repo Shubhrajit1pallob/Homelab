@@ -35,6 +35,12 @@ Never write a decrypted file to disk; `*.dec.yaml` and `*.plain.yaml` are gitign
 | `portfolio-views` | portfolio | `apps/portfolio/secrets/portfolio-views.enc.yaml` | portfolio Deployment |
 | `grafana-supabase` | monitoring | `apps/monitoring/prometheus/secrets/grafana-supabase.enc.yaml` | Grafana |
 | `grafana-admin` (since 2026-10-17) | monitoring | `apps/monitoring/prometheus/secrets/grafana-admin.enc.yaml` | Grafana |
+| `n8n-r2-backup` (R2 token, since 2026-10-19) | n8n | `apps/n8n/tenants/shawn/secrets/n8n-r2-backup.enc.yaml` | ObjectStore `n8n-backup-store` (barman-cloud sidecar in the Postgres pod) |
+| `n8n-encryption` (since 2026-10-19) | n8n | `apps/n8n/tenants/shawn/secrets/n8n-encryption.enc.yaml` | n8n Deployment |
+| `n8n-runners` (since 2026-10-19) | n8n | `apps/n8n/tenants/shawn/secrets/n8n-runners.enc.yaml` | n8n Deployment (n8n and its task-runners sidecar) |
+
+`N8N_ENCRYPTION_KEY` must ALSO be kept in the password manager: n8n encrypts every saved credential with it, so
+if it's lost (or a database restore is paired with a different key), every stored n8n credential is unreadable.
 
 Still hand-made (phase 6): `tunnel-token`, `cloudflare-api-token-secret`.
 

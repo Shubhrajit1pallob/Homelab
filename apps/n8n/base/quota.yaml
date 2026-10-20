@@ -1,9 +1,10 @@
 # Caps what one n8n tenant can take from agent-1 (requests / limits):
 #   postgres instance    50m / 128Mi -> 512Mi   (postgres-cluster.yaml)
 #   barman-cloud sidecar 10m /  32Mi -> 256Mi   (objectstore.yaml, injected into the postgres pod)
-#   n8n (later brief)          256Mi -> 1Gi
-# That's ~416Mi requested and ~1.75Gi of limits, under the quota below with room for CNPG's short-lived
-# initdb/backup job pods.
+#   n8n                 100m / 256Mi -> 1Gi     (n8n-deployment.yaml)
+#   n8n task-runners     50m /  64Mi -> 256Mi   (sidecar in the n8n pod)
+# That's 210m / 480Mi requested and 2Gi of limits. limits.memory is 2.5Gi (raised from 2Gi on 2026-10-19 when
+# the runners sidecar was added) so CNPG's short-lived job pods (e.g. a restore) still fit.
 apiVersion: v1
 kind: ResourceQuota
 metadata:
@@ -12,7 +13,7 @@ spec:
   hard:
     requests.cpu: 500m
     requests.memory: 768Mi
-    limits.memory: 2Gi
+    limits.memory: 2560Mi
     pods: "10"
     persistentvolumeclaims: "3"
     requests.storage: 10Gi
