@@ -42,6 +42,17 @@ spec:
       nodeSelector:
         node-role: cloud
 
+      # The n8n images are musl (Alpine), and agent-1's host adds search domains such as is.cc that answer NOERROR
+      # with no record. musl stops the search at that answer and never tries the real name, so with the default
+      # ndots:5 api.github.com etc. fail with ENOTFOUND. ndots 1 makes any dotted name absolute. Consequence: musl
+      # never falls back to search for those, so cluster services need a short name (same namespace, e.g. n8n-db-rw)
+      # or the FQDN (rag-api.rag-api.svc.cluster.local); `rag-api.rag-api` FAILS. Pod-level, so it covers both
+      # containers. See REQUIREMENTS.md "DNS".
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
+
       containers:
         - name: n8n
           # Pinned to the current stable release (the `stable` tag on Docker Hub and the latest GitHub release,

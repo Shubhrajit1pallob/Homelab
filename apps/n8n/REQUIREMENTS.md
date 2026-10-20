@@ -75,6 +75,24 @@ a plain Postgres StatefulSet (move the data with pg_dump/restore) and remove the
   a fresh n8n becomes its owner. Done 2026-10-19 (the hostname answers with a redirect to Cloudflare Access).
 - No public webhook path in phase 1 or 2.
 
+## DNS
+
+- **Cause** (found 2026-10-19): n8n logged `getaddrinfo ENOTFOUND api.n8n.io`. The pod's search list ends with
+  agent-1's host domains (`tail1693b1.ts.net is.cc trouble-free.net interserver.net`) under `ndots:5`. `is.cc` and
+  `interserver.net` answer NOERROR with no record for names like `api.github.com.is.cc`. The n8n images are musl,
+  and musl moves to the next search domain only on NXDOMAIN (`name_from_dns` in musl's
+  `src/network/lookup_name.c`), so it stops there and never tries the real name. rag-api's image (glibc) resolves
+  the same names on the same node.
+- **Fix:** `dnsConfig` with `ndots: "1"` on the n8n pod (`base/n8n-deployment.yaml`), covering both containers.
+  Reproduced with a throwaway `alpine:3.22` container, `search is.cc`: `getent hosts api.github.com` fails with
+  ndots:5 and resolves with ndots:1.
+- **Rule for workflows calling cluster services:** musl never applies the search list to a name with at least
+  ndots dots ("those with at least as many dots as ndots are only tried in the global namespace (never falling
+  back to search, which glibc would do ...)", musl wiki, *Functional differences from glibc*). So use either a
+  short name with no dots (same namespace only, e.g. `n8n-db-rw`) or the full name. `rag-api.rag-api` fails.
+  The rag-api reindex workflow uses `http://rag-api.rag-api.svc.cluster.local:8000` (Service `rag-api`, port
+  `http` 8000; 9090 is metrics).
+
 ## Known availability limits
 
 - The only Cloudflare Tunnel connector runs on the shubmedia laptop: if it is offline, n8n's UI is unreachable.
@@ -104,5 +122,9 @@ a plain Postgres StatefulSet (move the data with pg_dump/restore) and remove the
 - **Restore test** (phase 3): restore into a Cluster with a NEW name (for example `n8n-db-restore`) and point it
   at the old backups as its source. Restoring under the same name fails because its WAL archive path isn't
   empty (plugin-barman-cloud issue #411).
+- **agent-1 host search domains** (planned host change, not done): remove `is.cc`, `trouble-free.net` and
+  `interserver.net` from agent-1's resolver (probably set by netplan, cloud-init or DHCP from InterServer), then
+  check whether n8n's `ndots: "1"` can go. Write it up next to
+  `clusters/homelab/bootstrap/INCIDENT-2026-10-10-agent1-dns.md` (same host's DNS, `--accept-dns=false`).
 - **Alerting:** Alertmanager is disabled, so a failing backup or WAL archive alerts nobody. Until that changes,
   check `kubectl -n n8n get backups` and the Cluster's status by hand.
