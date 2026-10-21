@@ -1,0 +1,56 @@
+# Restore test for n8n-db (runbook: RESTORE.md in this folder). NOT GitOps: no kustomization or Application
+# references this folder. Applied by hand once, checked, then deleted.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  # A NEW name. The plugin's default serverName is the Cluster's name, so this can never read or write as
+  # "n8n-db" by accident, and the restore isn't tripped by the non-empty WAL archive check (plugin-barman-cloud
+  # issue #411, last comment).
+  name: n8n-db-restore-test
+  namespace: n8n
+spec:
+  instances: 1
+  # Same image as n8n-db (base/postgres-cluster.yaml).
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.6-standard-trixie
+
+  # Plugin syntax per plugin-barman-cloud v0.15.1 docs, "Restoring a Cluster". Recovers to the end of the WAL
+  # archive (the latest point available).
+  bootstrap:
+    recovery:
+      source: n8n-db-backup
+  externalClusters:
+    - name: n8n-db-backup
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: n8n-backup-store
+          serverName: n8n-db
+
+  # DELIBERATELY no `plugins:` section, so no WAL archiver: the plugin docs say this configuration "does not
+  # enable WAL archiving for the restored cluster". The test cluster only READS s3://n8n-backup/shawn/n8n-db/ and
+  # never writes into the bucket. Never add `plugins:` here.
+
+  # local-path doesn't enforce the size (the volume is a directory on agent-1's disk). The n8n database was
+  # 16.6 MiB on 2026-10-20 (cnpg_pg_database_size_bytes); the live pg_wal was 576 MiB.
+  storage:
+    size: 1Gi
+    storageClass: local-path
+
+  # The recovery job and the first instance pod also get the barman-cloud sidecar (256Mi limit). Peak 512Mi of
+  # limits, which fits the namespace quota exactly: see RESTORE.md "Quota".
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+  postgresql:
+    parameters:
+      shared_buffers: "32MB"   # sized for the 256Mi limit
+      max_connections: "30"    # must be >= the source's 30, or Postgres refuses to start a recovery
+
+  # REQUIRED: agent-1, like n8n-db.
+  affinity:
+    nodeSelector:
+      node-role: cloud

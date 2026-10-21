@@ -1,0 +1,262 @@
+# n8n holds every workflow credential and its own database, so the namespace is locked down both ways:
+#   n8n app pod (n8n + task-runners; the runners share the pod's network, so they get exactly these rules)
+#     ingress: Traefik (kube-system) on 5678; Prometheus (monitoring namespace) on 5678 (/metrics, same port)
+#     egress:  DNS; its Postgres (n8n-db) on 5432; HTTPS (443) to addresses OUTSIDE the cluster and tailnet
+#              (GitHub, Anthropic, Gmail, api.n8n.io); rag-api on 8000 (rag-api's own policy still refuses it
+#              until phase 4)
+#   CNPG pods (any pod with a cnpg.io/cluster label: instances AND CNPG's initdb/full-recovery job pods, which
+#   carry the same label (pkg/specs/jobs.go), so a restore-test or DR cluster is covered too)
+#     ingress: the CNPG operator (cnpg-system) on 8000 (status) and 5432; Prometheus on 9187 (n8n-db only);
+#              the n8n app on 5432 (n8n-db only); n8n-db's own instances to each other on 5432/8000
+#     egress:  DNS; the Kubernetes API (instance manager AND barman-cloud sidecar both use it); HTTPS to outside
+#              the cluster and tailnet (Cloudflare R2)
+# DENIED by default-deny, so not by accident: n8n -> the Kubernetes API (it mounts no token); n8n -> the internet
+# on any port but 443; every other namespace (and pod) -> Postgres; anything -> n8n except Traefik and monitoring.
+# Sources: CNPG docs "Networking" and "Security / Exposed ports" (operator must reach every instance on 8000
+# and 5432); plugin-barman-cloud v0.15.1 (the sidecar talks to the instance manager over a socket in the shared
+# /plugins volume, and to the operator never; operator <-> plugin stays inside cnpg-system, which these
+# policies don't touch).
+# Enforced by k3s's embedded network-policy controller (kube-router). How to test after the push: n8n's UI
+# loads; a Code node runs; `kubectl -n n8n get cluster n8n-db` stays "Cluster in healthy state" with
+# ContinuousArchiving True; a manual Backup completes; and a throwaway Pod in another namespace is refused
+# (kube-router rejects, so ECONNREFUSED rather than a timeout) on n8n-db-rw.n8n:5432 and n8n.n8n:5678.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# Same selector as apps/portfolio's allow-ingress-controller-to-site (K3s's built-in Traefik). Both the tunnel
+# (`web`) and Tailscale (`websecure`) arrive through it. If Traefik ever moves namespace, update this.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-controller-to-n8n
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: n8n
+      app.kubernetes.io/component: app
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 5678
+---
+# The ServiceMonitor scrapes /metrics on the app port itself (n8n has no separate metrics port).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-monitoring-to-n8n
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: n8n
+      app.kubernetes.io/component: app
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 5678
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-n8n-egress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: n8n
+      app.kubernetes.io/component: app
+  policyTypes:
+    - Egress
+  egress:
+    # Its database, through the n8n-db-rw Service (matched on the pod after the Service's DNAT).
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: n8n-db
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Public APIs. Same except-list as rag-api's allow-external-apis.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.42.0.0/16   # Pod CIDR
+              - 10.43.0.0/16   # Service CIDR
+              - 100.64.0.0/10  # Tailscale (node IPs)
+      ports:
+        - protocol: TCP
+          port: 443
+    # The reindex workflow (phase 4), at http://rag-api.rag-api.svc.cluster.local:8000. Still refused until
+    # apps/rag-api's policy admits n8n.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: rag-api
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: rag-api
+              app.kubernetes.io/component: api
+      ports:
+        - protocol: TCP
+          port: 8000
+---
+# The operator polls each instance's status port (8000, TLS) and connects to Postgres (5432); this is CNPG's
+# own networkpolicy-example.yaml, widened from one cluster to any CNPG pod here (restore tests, DR).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-operator-to-postgres
+spec:
+  podSelector:
+    matchExpressions:
+      - key: cnpg.io/cluster
+        operator: Exists
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cnpg-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: cloudnative-pg
+      ports:
+        - protocol: TCP
+          port: 8000
+        - protocol: TCP
+          port: 5432
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-clients-to-n8n-db
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: n8n-db
+  policyTypes:
+    - Ingress
+  ingress:
+    # n8n only. No other namespace or pod reaches Postgres.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: n8n
+              app.kubernetes.io/component: app
+      ports:
+        - protocol: TCP
+          port: 5432
+    # The PodMonitor scrapes the instance manager's metrics.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9187
+    # Instances of n8n-db to each other (replication, status), as CNPG requires. Unused with 1 instance; here so
+    # raising `instances` doesn't silently break.
+    - from:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: n8n-db
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 8000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-postgres-egress
+spec:
+  podSelector:
+    matchExpressions:
+      - key: cnpg.io/cluster
+        operator: Exists
+  policyTypes:
+    - Egress
+  egress:
+    # The Kubernetes API: the instance manager (status, its ConfigMaps and Secrets) and the barman-cloud sidecar
+    # (the ObjectStore and the R2 Secret) both call it. `kubernetes.default` is 10.43.0.1:443, which DNATs to
+    # server-1's Tailscale IP:6443 (`kubectl get endpoints kubernetes -n default`). Both are listed so the rule
+    # holds whether the controller matches before or after the DNAT. That address is inside 100.64.0.0/10, so
+    # the HTTPS rule below doesn't cover it. If server-1 ever gets a new Tailscale IP, update this line.
+    - to:
+        - ipBlock:
+            cidr: 10.43.0.1/32
+      ports:
+        - protocol: TCP
+          port: 443
+    - to:
+        - ipBlock:
+            cidr: 100.73.221.80/32
+      ports:
+        - protocol: TCP
+          port: 6443
+    # Cloudflare R2 (base backups, WAL archive, restores).
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.42.0.0/16   # Pod CIDR
+              - 10.43.0.0/16   # Service CIDR
+              - 100.64.0.0/10  # Tailscale (node IPs)
+      ports:
+        - protocol: TCP
+          port: 443
+    # n8n-db's instances to each other (see allow-clients-to-n8n-db).
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: n8n-db
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 8000

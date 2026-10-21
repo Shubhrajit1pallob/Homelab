@@ -105,8 +105,10 @@ a plain Postgres StatefulSet (move the data with pg_dump/restore) and remove the
 2. **n8n app** (written): Deployment (n8n + task-runners sidecar), PVC, Service, ServiceMonitor, IngressRoutes,
    encryption-key and runner-token Secrets.
    Cloudflare Access was set up first.
-3. **NetworkPolicies + a restore test.** NetworkPolicies are left out of phases 1-2 on purpose, so the database
-   and backups are proven working first and two new things are never debugged at once.
+3. **NetworkPolicies + a restore test** (written 2026-10-20). NetworkPolicies were left out of phases 1-2 on
+   purpose, so the database and backups are proven working first and two new things are never debugged at
+   once. Policies: `base/networkpolicy.yaml` (default-deny both ways; its header lists every allowed flow).
+   Restore test and DR runbook: `restore-test/RESTORE.md` (hand-applied, not GitOps).
 4. **Workflows**, in the order listed under Purpose.
 
 ## Open items
@@ -119,9 +121,12 @@ a plain Postgres StatefulSet (move the data with pg_dump/restore) and remove the
   every upgrade. Code the workflows run that comes from outside (PR text, email bodies) should still be treated
   as untrusted input and never executed.
 
-- **Restore test** (phase 3): restore into a Cluster with a NEW name (for example `n8n-db-restore`) and point it
-  at the old backups as its source. Restoring under the same name fails because its WAL archive path isn't
-  empty (plugin-barman-cloud issue #411).
+- **Restore test** (phase 3, not yet run): follow `restore-test/RESTORE.md` (Cluster `n8n-db-restore-test`,
+  no WAL archiver), then record the date, duration and observed RPO here. A restore whose archiver writes to
+  the same serverName fails because that WAL archive folder isn't empty (plugin-barman-cloud issue #411, last
+  comment), so the DR variant archives to a new serverName. Issue #411 is still open for other S3-compatible
+  stores (retention deletes failing on Content-MD5), so also check that backups older than 14 days are really
+  pruned from R2.
 - **agent-1 host search domains** (planned host change, not done): remove `is.cc`, `trouble-free.net` and
   `interserver.net` from agent-1's resolver (probably set by netplan, cloud-init or DHCP from InterServer), then
   check whether n8n's `ndots: "1"` can go. Write it up next to
