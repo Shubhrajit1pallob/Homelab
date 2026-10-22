@@ -1,5 +1,6 @@
 # rag-api holds paid API keys and the database credentials, so it is locked down both ways:
-#   ingress: only the portfolio Pods, on 8000; and Prometheus (monitoring namespace), on 9090 (metrics)
+#   ingress: the portfolio Pods, on 8000; the n8n app Pod (n8n namespace, the reindex workflow), on 8000, API
+#            Pods only; and Prometheus (monitoring namespace), on 9090 (metrics)
 #   egress:  DNS to CoreDNS, then HTTPS (Voyage, Anthropic) and Postgres (Supabase session pooler, 5432)
 #            to addresses OUTSIDE the cluster and tailnet only
 # Enforced by k3s's embedded network-policy controller. NOT YET TESTED here (same as apps/portfolio): after
@@ -35,6 +36,34 @@ spec:
           podSelector:
             matchLabels:
               app.kubernetes.io/name: portfolio
+      ports:
+        - protocol: TCP
+          port: 8000
+---
+# n8n's rag-api reindex workflow (apps/n8n) POSTs and deletes documents with the admin key. The API Pods only
+# (component: api), not the supabase-keepalive CronJob's, which share name=rag-api. apps/n8n's allow-n8n-egress
+# has the matching egress rule.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-n8n-to-api
+  namespace: rag-api
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: rag-api
+      app.kubernetes.io/component: api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: n8n
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: n8n
+              app.kubernetes.io/component: app
       ports:
         - protocol: TCP
           port: 8000

@@ -1,12 +1,42 @@
 # Values for kube-prometheus-stack (Helm chart 91.7.0), consumed by
-# clusters/homelab/parked/kube-prometheus-stack.yaml through its `$values` source.
+# clusters/homelab/applications/kube-prometheus-stack.yaml through its `$values` source.
 #
 # Sized for a 3-node K3s cluster with ~5.5 GiB free RAM across the two workers: server-1 is tainted and
 # nearly full, agent-1 has a single vCPU, and shubmedia (4 CPU, laptop) hosts the heavy pieces.
 # When shubmedia is replaced, change every `kubernetes.io/hostname: shubmedia` selector below.
 
+# Alertmanager (enabled 2026-10-21): email through Gmail SMTP. Its whole config (routing AND the Gmail address and
+# app password) is Secret alertmanager-config, SOPS-encrypted in secrets/alertmanager-config.enc.yaml; the same
+# routing with placeholder addresses is in secrets/alertmanager.example.yaml for review. No public route: reach it
+# with `kubectl -n monitoring port-forward svc/kube-prometheus-stack-alertmanager 9093:9093`.
 alertmanager:
-  enabled: false
+  enabled: true
+  # Chart default, stated because Prometheus must scrape Alertmanager for the chart's alertmanager rules.
+  serviceMonitor:
+    selfMonitor: true
+  alertmanagerSpec:
+    # The chart's own config Secret is not rendered; the operator reads key alertmanager.yaml of this one.
+    useExistingSecret: true
+    configSecret: alertmanager-config
+    replicas: 1
+    retention: 120h
+    # Links in the emails point here, which works while the port-forward above is running.
+    externalUrl: http://127.0.0.1:9093
+    nodeSelector:
+      kubernetes.io/hostname: shubmedia
+    # The operator's config-reloader sidecar gets prometheusOperator.prometheusConfigReloader's resources below.
+    resources:
+      requests: {cpu: 10m, memory: 32Mi}
+      limits: {memory: 128Mi}
+    # Silences and the notification log survive a restart. local-path, so on shubmedia's disk.
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 1Gi
 
 # K3s runs these control-plane components inside the k3s process and does not expose them as scrapeable
 # endpoints, so their targets would sit permanently "down" and their default rules would be noise.

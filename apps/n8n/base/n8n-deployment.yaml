@@ -156,6 +156,11 @@ spec:
             # Passed to the JavaScript runner; keeps its heap under this container's limit.
             - name: NODE_OPTIONS
               value: --max-old-space-size=192
+            # NOT set here: NODE_FUNCTION_ALLOW_BUILTIN. The launcher passes the JS runner only the env names in
+            # the image's /etc/n8n-task-runners.json `allowed-env`, which doesn't list it, so a value here is
+            # dropped. The same file's `env-overrides` already sets NODE_FUNCTION_ALLOW_BUILTIN=crypto (and
+            # NODE_FUNCTION_ALLOW_EXTERNAL=moment), which the reindex workflow's GitHub HMAC check needs
+            # (crypto.timingSafeEqual). Checked in 2.43.8-distroless; re-check that file on every upgrade.
           ports:
             - name: launcher-health
               containerPort: 5680

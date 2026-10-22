@@ -38,9 +38,17 @@ Never write a decrypted file to disk; `*.dec.yaml` and `*.plain.yaml` are gitign
 | `n8n-r2-backup` (R2 token, since 2026-10-19) | n8n | `apps/n8n/tenants/shawn/secrets/n8n-r2-backup.enc.yaml` | ObjectStore `n8n-backup-store` (barman-cloud sidecar in the Postgres pod) |
 | `n8n-encryption` (since 2026-10-19) | n8n | `apps/n8n/tenants/shawn/secrets/n8n-encryption.enc.yaml` | n8n Deployment |
 | `n8n-runners` (since 2026-10-19) | n8n | `apps/n8n/tenants/shawn/secrets/n8n-runners.enc.yaml` | n8n Deployment (n8n and its task-runners sidecar) |
+| `alertmanager-config` (key `alertmanager.yaml`, since 2026-10-21) | monitoring | `apps/monitoring/prometheus/secrets/alertmanager-config.enc.yaml` | Alertmanager (`alertmanagerSpec.configSecret` in values.yaml) |
 
 `N8N_ENCRYPTION_KEY` must ALSO be kept in the password manager: n8n encrypts every saved credential with it, so
 if it's lost (or a database restore is paired with a different key), every stored n8n credential is unreadable.
+
+`alertmanager-config` is ONE value, the whole Alertmanager config, so the routing is encrypted too. Its redacted
+twin `apps/monitoring/prometheus/secrets/alertmanager.example.yaml` (placeholders, not deployed) is what to
+review; change both in the same commit. Its 4 placeholders (the Gmail address x3, the app password) sit INSIDE
+that value, so `scripts/check-sops-encrypted.sh`'s placeholder check (a whole value equal to `CHANGE_ME`) can't
+see them: after `sops edit`, check with `sops -d <file> | grep -c CHANGE_ME` (prints only a count; must be 0).
+The operator reloads Alertmanager on its own when the Secret changes (config-reloader), so no restart is needed.
 
 Still hand-made (phase 6): `tunnel-token`, `cloudflare-api-token-secret`.
 
@@ -180,7 +188,8 @@ clusters/homelab/bootstrap/argocd-repo-server-ksops-patch.yaml # strategic patch
 scripts/check-sops-encrypted.sh                      # refuses a commit with a *.enc.yaml that isn't encrypted
 apps/rag-api/secrets/{rag-api-secrets.enc.yaml, ksops-generator.yaml}
 apps/portfolio/secrets/{rag-api-key.enc.yaml, portfolio-views.enc.yaml, ksops-generator.yaml}
-apps/monitoring/prometheus/secrets/{grafana-supabase.enc.yaml, ksops-generator.yaml}
+apps/monitoring/prometheus/secrets/{grafana-supabase.enc.yaml, grafana-admin.enc.yaml, alertmanager-config.enc.yaml,
+                                   alertmanager.example.yaml (redacted, not deployed), ksops-generator.yaml}
 ```
 
 ## Build log (phases 0-4 done 2026-10-13/14, phase 5 done 2026-10-17, phase 6 open)

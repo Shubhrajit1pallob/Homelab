@@ -1,0 +1,89 @@
+# n8n and its database (apps/n8n). Sent by email through Alertmanager (secrets/alertmanager.example.yaml).
+# Targets: job "n8n" is the n8n ServiceMonitor (port 5678); job "n8n/n8n-db" is CNPG's PodMonitor (9187).
+# absent(... == 1) also fires when a target disappears entirely, like RagApiDown. absent() of an expression
+# carries no labels, so each rule sets namespace itself (Alertmanager groups and inhibits by namespace).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: n8n-alerts
+  namespace: monitoring
+spec:
+  groups:
+    - name: n8n
+      rules:
+        - alert: N8nDown
+          expr: |
+            absent(up{namespace="n8n", job="n8n"} == 1)
+          for: 5m
+          labels:
+            severity: critical
+            namespace: n8n
+          annotations:
+            summary: "n8n is down"
+            description: "Prometheus can't scrape n8n:5678. The UI and every scheduled workflow are stopped. Check `kubectl -n n8n get pods`."
+
+        - alert: N8nDbDown
+          # Either the instance's metrics endpoint is gone, or it answers but can't reach Postgres.
+          expr: |
+            absent(up{namespace="n8n", job="n8n/n8n-db"} == 1)
+              or
+            max(cnpg_collector_up{namespace="n8n", cluster="n8n-db"}) == 0
+          for: 5m
+          labels:
+            severity: critical
+            namespace: n8n
+          annotations:
+            summary: "n8n's database n8n-db is down"
+            description: "The n8n-db instance isn't scrapeable or reports Postgres down. n8n can't run without it. Check `kubectl -n n8n get cluster n8n-db`."
+
+        - alert: N8nWalArchivingFailing
+          expr: |
+            increase(cnpg_pg_stat_archiver_failed_count{namespace="n8n"}[15m]) > 0
+          labels:
+            severity: warning
+            namespace: n8n
+          annotations:
+            summary: "n8n-db: WAL archiving to R2 is failing"
+            description: "{{ $value | printf \"%.0f\" }} failed WAL archive attempts in 15 minutes. Point-in-time recovery stops at the last good segment, and pg_wal grows. Check the plugin-barman-cloud sidecar log in n8n-db-1."
+
+        - alert: N8nWalArchivingStale
+          # Idle n8n-db archives about every 30 min (48 segments/day on 2026-10-21); the longest gap in the 2 days
+          # before was 99 min (99th percentile 73 min). 3h means archiving has stopped, not that n8n is quiet.
+          expr: |
+            max(cnpg_pg_stat_archiver_seconds_since_last_archival{namespace="n8n"}) > 3 * 3600
+          labels:
+            severity: warning
+            namespace: n8n
+          annotations:
+            summary: "n8n-db: no WAL archived for {{ $value | humanizeDuration }}"
+            description: "Nothing has reached R2 for over 3h. Check the n8n-db Cluster's ContinuousArchiving condition."
+
+        - alert: N8nBackupTooOld
+          # With the Barman Cloud PLUGIN, CNPG's own cnpg_collector_last_available_backup_timestamp stays 0; the
+          # plugin publishes barman_cloud_cloudnative_pg_io_* on the same endpoint (checked live 2026-10-21: it
+          # matched the last Backup CR, 2026-10-19 22:47 UTC). Base backups are weekly (Sundays 03:00 UTC), so
+          # 8 days means one was missed. A value of 0 (no backup yet) fires too; `for: 1h` rides out a brief 0
+          # while the instance restarts. If the metric is gone entirely, N8nDbDown fires instead.
+          expr: |
+            (time() - max(barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{namespace="n8n"})) > 8 * 86400
+          for: 1h
+          labels:
+            severity: critical
+            namespace: n8n
+          annotations:
+            summary: "n8n-db: last base backup is {{ $value | humanizeDuration }} old"
+            description: "No successful base backup to R2 in over 8 days. Check `kubectl -n n8n get backups` and the ScheduledBackup."
+
+        - alert: N8nBackupFailed
+          # The plugin's timestamps (see N8nBackupTooOld). last_failed is 0 until a backup first fails, so this
+          # fires only while the most recent attempt is a failure, and clears on the next good backup.
+          expr: |
+            max(barman_cloud_cloudnative_pg_io_last_failed_backup_timestamp{namespace="n8n"})
+              > max(barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{namespace="n8n"})
+          for: 15m
+          labels:
+            severity: warning
+            namespace: n8n
+          annotations:
+            summary: "n8n-db: the last base backup failed"
+            description: "The most recent base backup to R2 failed after the last good one. Check `kubectl -n n8n get backups` and the Backup's status.error."

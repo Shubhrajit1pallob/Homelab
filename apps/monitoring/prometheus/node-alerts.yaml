@@ -11,26 +11,47 @@ spec:
   groups:
     - name: node-exhaustion
       rules:
+        # node-exporter series have no `node` label, so both memory rules join node_uname_info for the node's
+        # name (`nodename`); `{{ $labels.node }}` used to print nothing. The comparison is in parentheses because
+        # `*` binds tighter than `<`; node_uname_info is always 1, so the value stays the percentage.
         - alert: NodeMemoryExhaustion
           expr: |
-            (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 < 10
+            ((node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 < 10)
+              * on (instance) group_left (nodename) node_uname_info
           for: 5m
           labels:
             severity: critical
           annotations:
-            summary: "Node memory exhaustion on {{ $labels.node }}"
+            summary: "Node memory exhaustion on {{ $labels.nodename }}"
             description: "Available memory is {{ $value | printf \"%.1f\" }}% — OOMKills likely imminent."
 
-        - alert: PodOOMKilled
-          # kube-state-metrics (enabled in values.yaml) provides this metric
+        # Early warning before NodeMemoryExhaustion (90% used). server-1 normally runs ~65-67% and peaked at
+        # 73.4% in the 7 days to 2026-10-21 (never above 75%), so this fires on a real change, not on a busy day.
+        - alert: NodeMemoryHigh
           expr: |
-            increase(kube_pod_container_status_restarts_total[5m]) > 0
+            ((1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 75)
+              * on (instance) group_left (nodename) node_uname_info
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Memory above 75% on {{ $labels.nodename }}"
+            description: "{{ $value | printf \"%.1f\" }}% of memory is in use. NodeMemoryExhaustion fires at 90%."
+
+        - alert: PodOOMKilled
+          # Both from kube-state-metrics. A restart in the last 5 min whose previous run ended in OOMKilled, so it
+          # fires once per OOM kill. The termination reason alone would stay set until the next termination.
+          # Other crashes are the chart's KubePodCrashLooping.
+          expr: |
+            (increase(kube_pod_container_status_restarts_total[5m]) > 0)
+              and on (namespace, pod, container)
+            (kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} == 1)
           for: 1m
           labels:
             severity: warning
           annotations:
-            summary: "Pod {{ $labels.pod }} restarted (possible OOMKill)"
-            description: "Container {{ $labels.container }} in {{ $labels.namespace }} restarted. Check for OOM."
+            summary: "Pod {{ $labels.pod }} was OOMKilled"
+            description: "Container {{ $labels.container }} in {{ $labels.namespace }} hit its memory limit and was restarted."
 
         - alert: NodeCPUSaturation
           expr: |

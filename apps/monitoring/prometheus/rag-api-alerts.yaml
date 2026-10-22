@@ -17,6 +17,8 @@ spec:
           for: 5m
           labels:
             severity: critical
+            # absent() of an expression carries no labels; Alertmanager groups and inhibits by namespace.
+            namespace: rag-api
           annotations:
             summary: "rag-api metrics target is down"
             description: "Prometheus can't scrape rag-api:9090. The chat may be down, or only the metrics server failed to start (check the pod log)."

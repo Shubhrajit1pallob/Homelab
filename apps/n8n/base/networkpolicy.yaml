@@ -2,8 +2,8 @@
 #   n8n app pod (n8n + task-runners; the runners share the pod's network, so they get exactly these rules)
 #     ingress: Traefik (kube-system) on 5678; Prometheus (monitoring namespace) on 5678 (/metrics, same port)
 #     egress:  DNS; its Postgres (n8n-db) on 5432; HTTPS (443) to addresses OUTSIDE the cluster and tailnet
-#              (GitHub, Anthropic, Gmail, api.n8n.io); rag-api on 8000 (rag-api's own policy still refuses it
-#              until phase 4)
+#              (GitHub, Anthropic, Gmail, api.n8n.io); rag-api's API Pods on 8000 and the portfolio Pods on
+#              9090 (the reindex workflow; each namespace's allow-n8n-* policy admits it on their side)
 #   CNPG pods (any pod with a cnpg.io/cluster label: instances AND CNPG's initdb/full-recovery job pods, which
 #   carry the same label (pkg/specs/jobs.go), so a restore-test or DR cluster is covered too)
 #     ingress: the CNPG operator (cnpg-system) on 8000 (status) and 5432; Prometheus on 9187 (n8n-db only);
@@ -129,8 +129,8 @@ spec:
       ports:
         - protocol: TCP
           port: 443
-    # The reindex workflow (phase 4), at http://rag-api.rag-api.svc.cluster.local:8000. Still refused until
-    # apps/rag-api's policy admits n8n.
+    # The reindex workflow (phase 4), at http://rag-api.rag-api.svc.cluster.local:8000. Admitted on rag-api's
+    # side by apps/rag-api's allow-n8n-to-api.
     - to:
         - namespaceSelector:
             matchLabels:
@@ -142,6 +142,19 @@ spec:
       ports:
         - protocol: TCP
           port: 8000
+    # The reindex workflow reads the site's documents from
+    # http://portfolio.portfolio.svc.cluster.local:9090/internal/rag-documents. Admitted on the portfolio's side
+    # by apps/portfolio's allow-n8n-to-internal.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: portfolio
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: portfolio
+      ports:
+        - protocol: TCP
+          port: 9090
 ---
 # The operator polls each instance's status port (8000, TLS) and connects to Postgres (5432); this is CNPG's
 # own networkpolicy-example.yaml, widened from one cluster to any CNPG pod here (restore tests, DR).

@@ -4,6 +4,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - node-alerts.yaml
+  - n8n-alerts.yaml
   - dashboard-configmap.yaml
   - portfolio-views-dashboard.yaml
   - portfolio-servicemonitor.yaml
@@ -11,6 +12,7 @@ resources:
   - rag-api-alerts.yaml
   - rag-api-dashboard.yaml
   - grafana-route.yaml
-# Secret grafana-supabase, SOPS-encrypted in secrets/ (see clusters/homelab/bootstrap/SECRETS-SOPS.md).
+# Secrets grafana-supabase, grafana-admin and alertmanager-config, SOPS-encrypted in secrets/ (see
+# clusters/homelab/bootstrap/SECRETS-SOPS.md). secrets/alertmanager.example.yaml is a redacted copy, not deployed.
 generators:
   - secrets/ksops-generator.yaml
