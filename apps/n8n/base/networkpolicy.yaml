@@ -1,9 +1,10 @@
 # n8n holds every workflow credential and its own database, so the namespace is locked down both ways:
 #   n8n app pod (n8n + task-runners; the runners share the pod's network, so they get exactly these rules)
 #     ingress: Traefik (kube-system) on 5678; Prometheus (monitoring namespace) on 5678 (/metrics, same port)
-#     egress:  DNS; its Postgres (n8n-db) on 5432; HTTPS (443) to addresses OUTSIDE the cluster and tailnet
-#              (GitHub, Anthropic, Gmail, api.n8n.io); rag-api's API Pods on 8000 and the portfolio Pods on
-#              9090 (the reindex workflow; each namespace's allow-n8n-* policy admits it on their side)
+#     egress:  DNS; its Postgres (n8n-db) on 5432; HTTPS (443) and Gmail SMTP (465, implicit TLS) to addresses
+#              OUTSIDE the cluster and tailnet (GitHub, Anthropic, Gmail, api.n8n.io; SMTP for notifications);
+#              rag-api's API Pods on 8000 and the portfolio Pods on 9090 (the reindex workflow; each namespace's
+#              allow-n8n-* policy admits it on their side)
 #   CNPG pods (any pod with a cnpg.io/cluster label: instances AND CNPG's initdb/full-recovery job pods, which
 #   carry the same label (pkg/specs/jobs.go), so a restore-test or DR cluster is covered too)
 #     ingress: the CNPG operator (cnpg-system) on 8000 (status) and 5432; Prometheus on 9187 (n8n-db only);
@@ -11,7 +12,8 @@
 #     egress:  DNS; the Kubernetes API (instance manager AND barman-cloud sidecar both use it); HTTPS to outside
 #              the cluster and tailnet (Cloudflare R2)
 # DENIED by default-deny, so not by accident: n8n -> the Kubernetes API (it mounts no token); n8n -> the internet
-# on any port but 443; every other namespace (and pod) -> Postgres; anything -> n8n except Traefik and monitoring.
+# on any port but 443 and 465; every other namespace (and pod) -> Postgres; anything -> n8n except Traefik and
+# monitoring.
 # Sources: CNPG docs "Networking" and "Security / Exposed ports" (operator must reach every instance on 8000
 # and 5432); plugin-barman-cloud v0.15.1 (the sidecar talks to the instance manager over a socket in the shared
 # /plugins volume, and to the operator never; operator <-> plugin stays inside cnpg-system, which these
@@ -118,7 +120,8 @@ spec:
       ports:
         - protocol: TCP
           port: 5432
-    # Public APIs. Same except-list as rag-api's allow-external-apis.
+    # Public APIs on 443, and Gmail SMTP for notifications on 465 (smtp.gmail.com, implicit TLS; the error-notify
+    # and reindex summary workflows). Same except-list as rag-api's allow-external-apis.
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
@@ -129,6 +132,8 @@ spec:
       ports:
         - protocol: TCP
           port: 443
+        - protocol: TCP
+          port: 465
     # The reindex workflow (phase 4), at http://rag-api.rag-api.svc.cluster.local:8000. Admitted on rag-api's
     # side by apps/rag-api's allow-n8n-to-api.
     - to:
