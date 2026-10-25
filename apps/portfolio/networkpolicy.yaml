@@ -58,8 +58,8 @@ spec:
         - protocol: TCP
           port: 9090
 ---
-# n8n's rag-api reindex workflow reads the site's documents from /internal/rag-documents (planned; being built
-# in the portfolio repo) on 9090, the Service's `metrics` port, which the site's Ingress doesn't route (it uses
+# n8n's rag-api reindex workflow reads the site's documents from /internal/rag-documents (and /internal/version;
+# live since sha-435907b) on 9090, the Service's `metrics` port, which the site's Ingress doesn't route (it uses
 # `http` only), so the endpoint isn't public. Only the n8n app Pod, not its database.
 # apps/n8n's allow-n8n-egress has the matching egress rule.
 apiVersion: networking.k8s.io/v1

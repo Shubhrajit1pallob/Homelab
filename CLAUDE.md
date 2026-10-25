@@ -52,7 +52,10 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
 - Ordering uses sync waves (cert-manager wave 0 first). Applications that use CRDs installed by another chart
   (`cert-manager-config`, `monitoring-config`) add `retry` and `SkipDryRunOnMissingResource=true`.
 - Enabled now: `portfolio`, `cert-manager`, `cert-manager-config`, `argocd-config`, `kube-prometheus-stack` +
-  `monitoring-config`, and `rag-api` (enabled 2026-10-14, image v0.1.0).
+  `monitoring-config`, `rag-api` (enabled 2026-10-14; image pin is in `apps/rag-api/kustomization.yaml`), and
+  (added 2026-10-19) `cnpg-operator` (chart cloudnative-pg 0.29.1, ns `cnpg-system`), `cnpg-barman-plugin`
+  (plugin-barman-cloud 0.8.1, same ns) and `n8n` (`apps/n8n/tenants/shawn`: a Kustomize base plus a tenant
+  overlay, laid out so another tenant is a new overlay). See "n8n" below.
   - rag-api's Secrets are SOPS-encrypted in `apps/rag-api/secrets/`. The portfolio's chat key is in
     `apps/portfolio/secrets/rag-api-key.enc.yaml` and is switched on separately (step 7 in the Application's
     header).
@@ -69,13 +72,14 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
   spec change. Deleting or renaming them in `infrastructure/argocd` makes ArgoCD prune them and the UI becomes
   unreachable (kubectl still works).
 - ArgoCD's in-cluster cluster Secret (`clusters/homelab/bootstrap/cluster-in-cluster.yaml`, hand-applied, not
-  synced) limits ArgoCD to the namespaces argocd, portfolio, cert-manager, kube-system, monitoring, and (in the
-  file since 2026-10-12, live once re-applied) rag-api. Before enabling an Application that deploys into any
-  other namespace (media, soc-lab, ...), add the namespace
+  synced) limits ArgoCD to the namespaces argocd, portfolio, cert-manager, kube-system, monitoring, rag-api,
+  cnpg-system and n8n (file and live cluster match, checked 2026-10-24). Before enabling an Application that
+  deploys into any other namespace (media, soc-lab, ...), add the namespace
   there and `kubectl apply -f` it, or the app fails with `namespace "X" is not managed`.
 - On disk with **no** Application (so not deployed): `infrastructure/longhorn` (ingress + cert only, no chart),
   `infrastructure/vault` (values only), `apps/homarr` (values only, chart unidentified), `apps/mealie`,
-  `apps/postgres` (a CloudNativePG `Cluster` with no operator installed). Don't assume they are live.
+  `apps/postgres` (a CloudNativePG `Cluster`; the CNPG operator IS installed now, so giving it an Application
+  would really bring the database up, don't enable it casually). Don't assume they are live.
 - The portfolio site's image is built and published to GHCR by the separate `portfolio_website` repo; its
   deployment manifests live here in `apps/portfolio/` with the image pinned to a `sha-<commit>` tag.
 
@@ -119,9 +123,14 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
 ## Things that live only in the cluster (not in Git)
 
 - App Secrets are in Git, SOPS-encrypted (age) in `apps/<app>/secrets/*.enc.yaml` and decrypted by ArgoCD with
-  KSOPS: `rag-api-secrets`, `rag-api-key`, `portfolio-views`, `grafana-supabase`, `grafana-admin`. Runbook (change, add, rotate,
-  break-glass, ArgoCD upgrade): `clusters/homelab/bootstrap/SECRETS-SOPS.md`. Never read the age private key or
-  print decrypted values.
+  KSOPS: `rag-api-secrets`, `rag-api-key`, `portfolio-views`, `grafana-supabase`, `grafana-admin`,
+  `alertmanager-config`, and n8n's `n8n-r2-backup`, `n8n-encryption`, `n8n-runners`. Runbook (change, add,
+  rotate, break-glass, ArgoCD upgrade): `clusters/homelab/bootstrap/SECRETS-SOPS.md`. Never read the age private
+  key or print decrypted values.
+- `alertmanager-config` holds the WHOLE Alertmanager config (routing, Gmail address and app password) as one
+  encrypted value, so `scripts/check-sops-encrypted.sh` can't see a placeholder inside it. Check with
+  `sops -d <file> | grep -c CHANGE_ME` (output is a count only). A redacted copy for review is
+  `apps/monitoring/prometheus/secrets/alertmanager.example.yaml`; keep the two in step.
 - Only in the cluster: `argocd/sops-age` (the age private key, "secret zero"; also in the user's password
   manager), the KSOPS patches on `argocd-cm` and `argocd-repo-server` (re-apply after any ArgoCD upgrade), and
   two Secrets still created by hand (to migrate, phase 6): `cloudflare-api-token-secret` (ns `cert-manager`,
@@ -132,9 +141,39 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
   dashboard htpasswd hash, a Grafana password). Treat them as compromised and never put a secret in a committed
   file.
 
-## Current status and next steps (as of 2026-10-04; update or delete when stale)
+## n8n and the rag-api reindex workflow (added 2026-10-24)
 
-- **ArgoCD is live (since 2026-09-29)**, running only `portfolio`. It was brought up per
+Detail lives in `apps/n8n/REQUIREMENTS.md`, `apps/n8n/restore-test/RESTORE.md` and
+`apps/n8n/workflows/README.md`; this is only what a session must not get wrong.
+
+- n8n runs in ns `n8n` on `agent-1` with `n8n-db`, a CNPG cluster (1 instance). WAL archiving (Barman Cloud
+  plugin) and a weekly base backup (Sundays 03:00 UTC, 14d retention) go to R2 (`s3://n8n-backup/shawn/`).
+  **The restore has never been tested** (RESTORE.md; the user deferred it). Don't call the backups proven.
+- Access: the hostname is behind Cloudflare Access, plus a separate Access app that BYPASSES `/webhook/*` only
+  (set in the Cloudflare dashboard, not in this repo; verified 2026-10-24 by curl route test + GitHub ping). GitHub webhook signatures are
+  verified by n8n's GitHub Trigger node itself.
+- ns `n8n` is default-deny (NetworkPolicies). Egress allowed: n8n-db, rag-api:8000, portfolio:9090 (internal
+  port, never public) and the internet on 443 + 465 (Gmail SMTP). A new destination needs a policy change,
+  and rag-api / portfolio need a matching ingress rule. ns `monitoring` has NO NetworkPolicies.
+- Workflow `rag-reindex`: a merged portfolio release PR in this repo fires a GitHub webhook; the workflow
+  filters to releases that change the site's data, waits for the rollout, POSTs the documents
+  (`/internal/rag-documents`, with `/internal/version`, on the portfolio's port 9090) to rag-api, deletes
+  removed IDs and emails a summary. A manual `rag_export` is no longer needed (it stays as the manual
+  fallback). The endpoints have been live since portfolio `sha-435907b` (Homelab release PR #18).
+- Exports in `apps/n8n/workflows/` are NOT GitOps (nothing applies them). Follow its README: sanitize with the
+  jq filter, run its grep check before committing. `.gitignore` has `!apps/n8n/workflows/*.json` as an
+  exception to the blanket `*.json` rule.
+- Lessons: (1) a PVC on `local-path` (WaitForFirstConsumer) must be in the SAME sync wave as its consumer, or
+  the sync deadlocks (it did, for n8n). (2) Alpine/musl images plus agent-1's host search domains give
+  ENOTFOUND, so n8n sets `dnsConfig ndots: "1"`; use short names or full `.svc.cluster.local` FQDNs, never
+  `svc.ns`. (3) `argocd app get` in core mode needs the kubectl context namespace set to `argocd`.
+
+## Current status and next steps (as of 2026-10-24; update or delete when stale)
+
+Older bullets below are history from 2026-10-04 and earlier; where they conflict with the sections above
+(enabled apps, Alertmanager, n8n), the sections above win.
+
+- **ArgoCD is live (since 2026-09-29)**; it now runs the apps listed under "Enabled now". It was brought up per
   `clusters/homelab/bootstrap/README.md`: a namespace-scoped in-cluster Secret, lower parallelism, a 600s
   reconciliation interval (so merges deploy within ~10 min, or press Refresh), and dex/applicationset-
   controller/notifications-controller kept at 0. Only argocd-application-controller runs on `shubmedia` (the
@@ -169,8 +208,11 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
   don't allow video). Keep it portable for a possible future local server. Its namespace must be added to the
   cluster Secret first.
 - **Monitoring enabled 2026-10-04:** kube-prometheus-stack 91.7.0 + `monitoring-config`. Prometheus, Grafana,
-  operator and kube-state-metrics are pinned to shubmedia; node-exporter runs on all 3 nodes; Alertmanager is
-  disabled (no alert delivery yet). Retention 7d / 4GB on a 5Gi local-path PVC (node-local). The 10 CRDs
+  operator and kube-state-metrics are pinned to shubmedia; node-exporter runs on all 3 nodes. Alertmanager has been
+  enabled since 2026-10-22: pinned to shubmedia, 1Gi PVC, email through Gmail SMTP, config from the SOPS Secret
+  `alertmanager-config`, port-forward only. Rules: `apps/monitoring/prometheus/n8n-alerts.yaml` (n8n and n8n-db
+  down, WAL archiving, backup too old or failed) and a NodeMemoryHigh 75% warning in `node-alerts.yaml`. **No
+  dead man's switch**: monitoring lives on the laptop node, so it can't alert about its own outage. Retention 7d / 4GB on a 5Gi local-path PVC (node-local). The 10 CRDs
   (~4.4 MB) were pre-applied by hand one at a time with server-side apply while watching server-1 memory;
   repeat that on any rebuild. Grafana 13 needs ~400Mi steady (now 384Mi/640Mi, sidecars 64Mi/128Mi; 256Mi
   caused liveness kills on startup). Measured after: server-1 ~53%, agent-1 ~27%, shubmedia ~58%; ArgoCD
