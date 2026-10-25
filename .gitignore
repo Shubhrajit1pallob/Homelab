@@ -2,6 +2,8 @@
 
 vault/cluster-keys.json
 *.json
+# n8n workflow exports, sanitized per apps/n8n/workflows/README.md
+!apps/n8n/workflows/*.json
 
 # Plaintext secrets - create these in-cluster with kubectl instead
 apps/postgres/secrets.yaml

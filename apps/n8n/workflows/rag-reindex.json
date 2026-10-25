@@ -1,0 +1,963 @@
+[
+  {
+    "id": "BJ6UrsNfG3YdnoBy",
+    "name": "rag-reindex",
+    "description": null,
+    "active": true,
+    "isArchived": false,
+    "nodes": [
+      {
+        "parameters": {
+          "owner": {
+            "__rl": true,
+            "value": "Shubhrajit1pallob",
+            "mode": "list",
+            "cachedResultName": "Shubhrajit1pallob",
+            "cachedResultUrl": "https://github.com/Shubhrajit1pallob"
+          },
+          "repository": {
+            "__rl": true,
+            "value": "Homelab",
+            "mode": "list",
+            "cachedResultName": "Homelab",
+            "cachedResultUrl": "https://github.com/Shubhrajit1pallob/Homelab"
+          },
+          "events": [
+            "push"
+          ],
+          "options": {}
+        },
+        "type": "n8n-nodes-base.githubTrigger",
+        "typeVersion": 1,
+        "position": [
+          -1312,
+          -1088
+        ],
+        "id": "a1de6980-fad2-4d85-bc53-9ca95a172665",
+        "name": "Github Trigger",
+        "webhookId": "5d0ff1c5-e2cc-49e2-af04-b0a50fb04743",
+        "credentials": {
+          "githubApi": {
+            "id": "wpnMHNuBhyoDjWpw",
+            "name": "github homelab-reindex"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "848e4294-3165-47fe-9656-a61330d16e97",
+                "leftValue": "={{ $json.body.ref }}",
+                "rightValue": "refs/heads/main",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals",
+                  "name": "filter.operator.equals"
+                }
+              },
+              {
+                "id": "7afe1cdf-44f1-47d3-998d-ad4d15db8940",
+                "leftValue": "={{ $json.body.commits.some(c => (c.modified || []).includes('apps/portfolio/deployment.yaml')) }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.filter",
+        "typeVersion": 2.3,
+        "position": [
+          -1088,
+          -1088
+        ],
+        "id": "bee797a9-7f14-4130-acfd-9643b2fe5fcb",
+        "name": "Is portfolio release"
+      },
+      {
+        "parameters": {
+          "url": "=https://api.github.com/repos/Shubhrajit1pallob/Homelab/contents/apps/portfolio/deployment.yaml?ref={{ $('Github Trigger').item.json.body.before }}",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "githubApi",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Accept",
+                "value": "application/vnd.github.raw"
+              }
+            ]
+          },
+          "options": {
+            "response": {
+              "response": {
+                "responseFormat": "text"
+              }
+            }
+          }
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.5,
+        "position": [
+          -864,
+          -1088
+        ],
+        "id": "3f1a8f37-c190-47e9-a1a1-d01dc2ee4a71",
+        "name": "Get old deployment",
+        "credentials": {
+          "githubApi": {
+            "id": "wpnMHNuBhyoDjWpw",
+            "name": "github homelab-reindex"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const pick = (txt) => {\n  const m = txt.match(/name:\\s*APP_VERSION\\s*\\n\\s*value:\\s*\"?(sha-[0-9a-f]{7,40})\"?/);\n  if (!m) throw new Error('APP_VERSION not found in deployment.yaml');\n  return m[1];\n};\nconst oldTag = pick($('Get old deployment').first().json.data);\nconst newTag = pick($('Get New deployment').first().json.data);\nreturn [{ json: { oldTag, newTag, changed: oldTag !== newTag,\n                  oldSha: oldTag.slice(4), newSha: newTag.slice(4) } }];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -416,
+          -1088
+        ],
+        "id": "f0e33ecf-f08f-4b63-9566-bf3a28ec23e8",
+        "name": "Extract Tags"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "0579fae5-e1dd-468a-988d-923764bf6721",
+                "leftValue": "={{ $json.changed }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.filter",
+        "typeVersion": 2.3,
+        "position": [
+          -192,
+          -1088
+        ],
+        "id": "9e18b5d7-e36e-4099-828c-32192dc32353",
+        "name": "Tag Changed"
+      },
+      {
+        "parameters": {
+          "url": "= https://api.github.com/repos/Shubhrajit1pallob/portfolio_website/compare/{{ $json.oldSha }}...{{ $json.newSha }}",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "githubApi",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Accept",
+                "value": "application/vnd.github+json"
+              }
+            ]
+          },
+          "options": {
+            "response": {
+              "response": {
+                "responseFormat": "json"
+              }
+            }
+          }
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.5,
+        "position": [
+          32,
+          -1088
+        ],
+        "id": "8ef1bfe7-e6b1-45e5-a727-0edfed7ba674",
+        "name": "Compare portfolio",
+        "credentials": {
+          "githubApi": {
+            "id": "wpnMHNuBhyoDjWpw",
+            "name": "github homelab-reindex"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const files = ($input.first().json.files || []).map(f => f.filename);\nconst contentFiles = files.filter(f => f.startsWith('app/data/') || f === 'app/rag_export.py');\nreturn [{ json: { ...$('Extract Tags').first().json, contentFiles,\n                  contentChanged: contentFiles.length > 0 } }];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          256,
+          -1088
+        ],
+        "id": "471cde24-867a-4428-81f4-955e4a4ff6a6",
+        "name": "Content Changed?"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "e14e2c28-21e3-4059-905e-8871208096f9",
+                "leftValue": "={{ $json.contentChanged }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.filter",
+        "typeVersion": 2.3,
+        "position": [
+          480,
+          -1088
+        ],
+        "id": "89ebb44d-7aba-4f53-9ad4-57facb95ae05",
+        "name": "Content Changed"
+      },
+      {
+        "parameters": {
+          "url": "=https://api.github.com/repos/Shubhrajit1pallob/Homelab/contents/apps/portfolio/deployment.yaml?ref={{ $('Github Trigger').item.json.body.after }}",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "githubApi",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Accept",
+                "value": "application/vnd.github.raw"
+              }
+            ]
+          },
+          "options": {
+            "response": {
+              "response": {
+                "responseFormat": "text"
+              }
+            }
+          }
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.5,
+        "position": [
+          -640,
+          -1088
+        ],
+        "id": "96e00c28-8b05-49e3-95d8-d27729433e64",
+        "name": "Get New deployment",
+        "credentials": {
+          "githubApi": {
+            "id": "wpnMHNuBhyoDjWpw",
+            "name": "github homelab-reindex"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "url": "= http://portfolio.portfolio.svc.cluster.local:9090/internal/version",
+          "options": {
+            "response": {
+              "response": {
+                "neverError": true
+              }
+            },
+            "timeout": 5000
+          }
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.5,
+        "position": [
+          704,
+          -1088
+        ],
+        "id": "1a0e7d6f-38df-4e35-834e-50c49792580c",
+        "name": "Get running version"
+      },
+      {
+        "parameters": {
+          "jsCode": "const MAX_ATTEMPTS = 30;                       // 30 × 30s ≈ 15 min\nconst target = $('Content Changed?').first().json.newTag;\nconst got = $input.first().json.version ?? null;\nconst attempt = $runIndex + 1;\nif (got !== target && attempt >= MAX_ATTEMPTS) {\n  throw new Error(`Rollout to ${target} not seen after ${attempt} checks (last saw ${got})`);\n}\nreturn [{ json: { target, got, matched: got === target, attempt } }];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          928,
+          -1168
+        ],
+        "id": "7e6f417d-ddb9-4398-ac31-572ced04be0d",
+        "name": "Check rollout"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "99b51acc-0dcc-4da4-bac1-2b2e61b5a160",
+                "leftValue": "={{ $json.matched }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          1152,
+          -1168
+        ],
+        "id": "c7be16ac-6045-47cd-9788-7246f3b9509b",
+        "name": "Rolled out?"
+      },
+      {
+        "parameters": {
+          "amount": 30
+        },
+        "type": "n8n-nodes-base.wait",
+        "typeVersion": 1.1,
+        "position": [
+          1376,
+          -992
+        ],
+        "id": "17721188-9a8b-4cc3-9f4b-cddbedeb3fc0",
+        "name": " Wait 30s",
+        "webhookId": "95fa329d-7ed9-4a3d-bdde-c066f35df062"
+      },
+      {
+        "parameters": {
+          "url": "= http://portfolio.portfolio.svc.cluster.local:9090/internal/rag-documents",
+          "options": {
+            "response": {
+              "response": {}
+            },
+            "timeout": 10000
+          }
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.5,
+        "position": [
+          1376,
+          -1216
+        ],
+        "id": "aa9f6557-ee2a-41e3-a753-792d00e46344",
+        "name": "Get documents"
+      },
+      {
+        "parameters": {
+          "jsCode": "const MAX_ATTEMPTS = 5;\nconst target = $('Check rollout').last().json.target;\nconst r = $input.first().json;\nconst attempt = $runIndex + 1;\nconst ok = r.version === target && Array.isArray(r.documents)\n        && r.count > 0 && r.documents.length === r.count;\nif (!ok && attempt >= MAX_ATTEMPTS) {\n  throw new Error(`Documents not valid after ${attempt} tries: wanted ${target}, got ${r.version}, count ${r.count}`);\n}\nreturn [{ json: { ok, target, version: r.version, count: r.count } }];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1600,
+          -1280
+        ],
+        "id": "b2d36a3a-fed4-4ed5-8df2-d56749bde642",
+        "name": "Verify documents"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "9aacc164-bb25-4ace-9ab2-0d134cc74ae5",
+                "leftValue": "={{ $json.ok }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          1824,
+          -1280
+        ],
+        "id": "d9905a9b-4ee6-4d88-a865-780576124b6e",
+        "name": "Docs OK?"
+      },
+      {
+        "parameters": {
+          "jsCode": "return $('Get documents').last().json.documents.map(doc => ({ json: doc }));"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2048,
+          -1328
+        ],
+        "id": "793fff11-2fdd-427a-8869-9b8f858d330d",
+        "name": "Documents to items"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "= http://rag-api.rag-api.svc.cluster.local:8000/documents",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "= {{ JSON.stringify($json) }} ",
+          "options": {
+            "batching": {
+              "batch": {
+                "batchSize": 1,
+                "batchInterval": 0
+              }
+            }
+          }
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.5,
+        "position": [
+          2272,
+          -1328
+        ],
+        "id": "ccac65a1-388c-45ae-8390-defdfee6d9ed",
+        "name": "POST document",
+        "retryOnFail": true,
+        "waitBetweenTries": 5000,
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "UMrFymtW87MPFdae",
+            "name": "rag-api admin"
+          }
+        },
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "jsCode": "const current = $('Get documents').last().json.documents.map(d => d.document_id);\nconst state = $getWorkflowStaticData('global');\nconst previous = state.documentIds || [];\nconst removed = previous.filter(id => !current.includes(id));\nconst tooMany = previous.length > 0 && removed.length / previous.length > 0.3;\nif (removed.length === 0 || tooMany) {\n  return [{ json: { skip: true, removed, tooMany } }];\n}\nreturn removed.map(id => ({ json: { skip: false, id } }));"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2496,
+          -1328
+        ],
+        "id": "f3dea6c1-5c13-4ff4-8d4d-dae8e1fba01e",
+        "name": "Plan deletes"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "26f43a52-961c-4995-bbdb-a87fe5a81178",
+                "leftValue": "={{ $json.skip }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "false",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          2720,
+          -1328
+        ],
+        "id": "52cfb748-cf89-450e-99a1-24d1abf16605",
+        "name": "Has deletes?"
+      },
+      {
+        "parameters": {
+          "method": "DELETE",
+          "url": "=http://rag-api.rag-api.svc.cluster.local:8000/documents/{{ encodeURIComponent($json.id) }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "= {{ JSON.stringify($json) }} ",
+          "options": {
+            "batching": {
+              "batch": {
+                "batchSize": 1,
+                "batchInterval": 0
+              }
+            }
+          }
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.5,
+        "position": [
+          2944,
+          -1408
+        ],
+        "id": "7a2068a2-b7a2-4b9b-8183-51c22f5f0d26",
+        "name": "DELETE document",
+        "retryOnFail": true,
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "UMrFymtW87MPFdae",
+            "name": "rag-api admin"
+          }
+        },
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "2cf85b0f-69b8-4506-a5b9-330fee4d20d2",
+                "leftValue": "={{ $json.report }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          3392,
+          -1328
+        ],
+        "id": "bdeb645c-d229-44e4-9f27-949cb19eca2d",
+        "name": "Anything to report?"
+      },
+      {
+        "parameters": {
+          "jsCode": "const posts = $('POST document').all().map(i => i.json);\nconst count = s => posts.filter(p => p.status === s).length;\nconst failed = posts.filter(p => !p.status).map(p => p.document_id || JSON.stringify(p.error || p).slice(0, 200));\n\nconst plan = $('Plan deletes').all().map(i => i.json);\nlet deleted = [], deleteFailed = [];\nif ($('DELETE document').isExecuted) {\n  for (const d of $('DELETE document').all().map(i => i.json)) {\n    if (d.document_id) deleted.push(d.document_id);\n    else if (String(d.error?.httpCode ?? d.error?.message ?? '').includes('404')) deleted.push('(already gone)');\n    else deleteFailed.push(JSON.stringify(d.error || d).slice(0, 200));\n  }\n}\nconst tooMany = plan[0]?.tooMany === true;\n\n// Save state only if everything succeeded, so a half-failed run retries next time\nif (failed.length === 0 && deleteFailed.length === 0) {\n  $getWorkflowStaticData('global').documentIds =\n    $('Get documents').last().json.documents.map(d => d.document_id);\n}\n\nconst s = {\n  oldTag: $('Content Changed?').first().json.oldTag,\n  newTag: $('Content Changed?').first().json.newTag,\n  created: count('created'), content_updated: count('content_updated'),\n  metadata_updated: count('metadata_updated'), unchanged: count('unchanged'),\n  deleted, failed, deleteFailed,\n  skippedDeletes: tooMany ? plan[0].removed : [],\n};\ns.report = s.created + s.content_updated + s.metadata_updated + deleted.length\n         + failed.length + deleteFailed.length + s.skippedDeletes.length > 0;\nreturn [{ json: s }];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          3168,
+          -1312
+        ],
+        "id": "12b3e857-3736-4877-bcd5-1c17b2278885",
+        "name": "Summarize"
+      },
+      {
+        "parameters": {
+          "fromEmail": "CHANGE_ME@example.com",
+          "toEmail": "CHANGE_ME@example.com",
+          "subject": "=rag-reindex {{ $json.newTag }}: {{ $json.created }} new, {{ $json.content_updated }} updated, {{ $json.failed.length }} failed",
+          "emailFormat": "text",
+          "text": "=Release: {{ $json.oldTag }} → {{ $json.newTag }}\nCreated: {{ $json.created }}   Content updated: {{ $json.content_updated }}\nMetadata updated: {{ $json.metadata_updated }}   Unchanged: {{ $json.unchanged }}\nDeleted: {{ $json.deleted.join(', ') || 'none' }}\nFAILED posts: {{ $json.failed.join(', ') || 'none' }}\nFAILED deletes: {{ $json.deleteFailed.join(', ') || 'none' }}\nDeletes SKIPPED by the 30% guard: {{ $json.skippedDeletes.join(', ') || 'none' }}",
+          "options": {
+            "appendAttribution": true
+          }
+        },
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          3616,
+          -1328
+        ],
+        "id": "069cd93a-84d1-4da1-9ba8-1fbe163e6c2f",
+        "name": "Reindex summary",
+        "webhookId": "c5566ce7-5eac-4f68-8c72-d6849d50ad61",
+        "credentials": {
+          "smtp": {
+            "id": "cGe3regCOweCQTqP",
+            "name": "SMTP account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "amount": 20
+        },
+        "type": "n8n-nodes-base.wait",
+        "typeVersion": 1.1,
+        "position": [
+          2048,
+          -1120
+        ],
+        "id": "507100a6-7dce-4eca-9830-35109610877e",
+        "name": "Wait before refetch",
+        "webhookId": "378a972f-0bef-41d3-88bd-2a5973886f23"
+      }
+    ],
+    "connections": {
+      "Github Trigger": {
+        "main": [
+          [
+            {
+              "node": "Is portfolio release",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Is portfolio release": {
+        "main": [
+          [
+            {
+              "node": "Get old deployment",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Get old deployment": {
+        "main": [
+          [
+            {
+              "node": "Get New deployment",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Extract Tags": {
+        "main": [
+          [
+            {
+              "node": "Tag Changed",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Tag Changed": {
+        "main": [
+          [
+            {
+              "node": "Compare portfolio",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Compare portfolio": {
+        "main": [
+          [
+            {
+              "node": "Content Changed?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Content Changed?": {
+        "main": [
+          [
+            {
+              "node": "Content Changed",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Get New deployment": {
+        "main": [
+          [
+            {
+              "node": "Extract Tags",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Content Changed": {
+        "main": [
+          [
+            {
+              "node": "Get running version",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Get running version": {
+        "main": [
+          [
+            {
+              "node": "Check rollout",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Check rollout": {
+        "main": [
+          [
+            {
+              "node": "Rolled out?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Rolled out?": {
+        "main": [
+          [
+            {
+              "node": "Get documents",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": " Wait 30s",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      " Wait 30s": {
+        "main": [
+          [
+            {
+              "node": "Get running version",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Get documents": {
+        "main": [
+          [
+            {
+              "node": "Verify documents",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Verify documents": {
+        "main": [
+          [
+            {
+              "node": "Docs OK?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Docs OK?": {
+        "main": [
+          [
+            {
+              "node": "Documents to items",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Wait before refetch",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Documents to items": {
+        "main": [
+          [
+            {
+              "node": "POST document",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "POST document": {
+        "main": [
+          [
+            {
+              "node": "Plan deletes",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Plan deletes": {
+        "main": [
+          [
+            {
+              "node": "Has deletes?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Has deletes?": {
+        "main": [
+          [
+            {
+              "node": "DELETE document",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Summarize",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "DELETE document": {
+        "main": [
+          [
+            {
+              "node": "Summarize",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Anything to report?": {
+        "main": [
+          [
+            {
+              "node": "Reindex summary",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Summarize": {
+        "main": [
+          [
+            {
+              "node": "Anything to report?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Wait before refetch": {
+        "main": [
+          [
+            {
+              "node": "Get documents",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1",
+      "binaryMode": "separate",
+      "timeSavedMode": "fixed",
+      "errorWorkflow": "B1bkGEixzegQQcaA",
+      "callerPolicy": "workflowsFromSameOwner",
+      "availableInMCP": false
+    },
+    "nodeGroups": [],
+    "pinData": {},
+    "sourceWorkflowId": null,
+    "tags": []
+  }
+]

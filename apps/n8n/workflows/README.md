@@ -22,8 +22,12 @@ An export references each credential by its n8n ID and name (`"credentials": {"h
   `First Last <email>`). Checked in n8n 2.43.8's source: `export:workflow` writes the whole workflow row with
   its `shared.project` relation (`packages/cli/src/commands/export/workflow.ts`), and `GithubTrigger.node.ts`
   stores the secret with `getWorkflowStaticData('node')`.
-- **This repo is public.** Before committing an export, run the check below. Anything it prints must be
-  explained, or moved into a credential and exported again.
+- An email address typed into a node (the Send Email node's From and To) is personal data, not a secret, but
+  this repo is public, so the export steps replace `fromEmail`/`toEmail` with `CHANGE_ME@example.com`.
+- **This repo is public.** Before every commit of an export, RUN the check below; don't just read the jq step
+  and assume it worked (the first rag-reindex export still had a Gmail address in it, which this email pattern
+  catches). Anything it prints must be explained, or moved into a credential and exported again.
+  On a sanitized export it prints only the `CHANGE_ME@example.com` placeholders and an empty `"pinData"`.
 
 ```bash
 grep -nEi '"(password|secret|webhooksecret|token|apikey|api_key|authorization|x-api-key|staticdata|shared)"|bearer |sk-ant-|ghp_|github_pat_|gh[opsu]_|"pinData"|[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}' apps/n8n/workflows/*.json
@@ -35,14 +39,25 @@ the editor before exporting. The email pattern catches the project name and any 
 ## Export
 
 Use the CLI in the n8n container, which already has the database settings. The workflow's ID is the last part
-of its URL (`…/workflow/<id>`). The output is a JSON **array** (even for one `--id`); `jq` drops `staticData`
-and `shared` before anything reaches the repo:
+of its URL (`…/workflow/<id>`). The output is a JSON **array** (even for one `--id`). Before anything reaches
+the repo, `jq` drops `staticData` and `shared`, drops the fields that change on every save or run (`meta`,
+`triggerCount`, version IDs and counters, timestamps) so diffs show only real edits, and replaces any email
+address in a node's From/To with a placeholder. It keeps each node's `webhookId`, so a re-import keeps the same
+webhook path (the GitHub Trigger path isn't a secret: n8n checks each delivery's HMAC signature).
 
 ```bash
 kubectl -n n8n exec deploy/n8n -c n8n -- n8n export:workflow --id=<id> --output=/tmp/wf.json
-kubectl -n n8n exec deploy/n8n -c n8n -- cat /tmp/wf.json | jq 'map(del(.staticData, .shared))' > apps/n8n/workflows/<name>.json
+kubectl -n n8n exec deploy/n8n -c n8n -- cat /tmp/wf.json | jq 'map(
+    del(.staticData, .shared, .meta, .triggerCount, .versionCounter, .activeVersionId, .versionId,
+        .versionMetadata, .updatedAt, .createdAt)
+    | .nodes |= map(reduce ("fromEmail", "toEmail") as $k (.;
+        if (.parameters // {}) | has($k) then .parameters[$k] = "CHANGE_ME@example.com" else . end)))' \
+  > apps/n8n/workflows/<name>.json
 kubectl -n n8n exec deploy/n8n -c n8n -- rm /tmp/wf.json
 ```
+
+The repo ignores `*.json`, with an exception for `apps/n8n/workflows/*.json` (`.gitignore`), so files here
+show up in `git status`. Any other JSON stays ignored.
 
 The UI's `...` > **Download** works too, but run the grep check on it the same way (not checked whether the
 editor's download includes `staticData`).
@@ -69,5 +84,7 @@ What to know (n8n docs, "Use the command line"):
 - A GitHub Trigger imported without `staticData` has no webhook ID or secret, so activating it registers a NEW
   webhook on the repo with a new secret. After re-importing over an existing workflow, delete the old webhook
   in the repo's Settings > Webhooks (n8n no longer tracks it).
+- Email nodes come back with `CHANGE_ME@example.com` in From and To. Re-enter the real addresses in each Send
+  Email node (e.g. "Reindex summary") before activating, or the mail goes nowhere.
 - The credentials a workflow refers to must exist in this n8n. On a fresh instance (e.g. a new tenant), create
   them first, then re-select each one in the imported workflow's nodes and save.
