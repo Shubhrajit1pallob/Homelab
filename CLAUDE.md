@@ -124,7 +124,10 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
 
 - App Secrets are in Git, SOPS-encrypted (age) in `apps/<app>/secrets/*.enc.yaml` and decrypted by ArgoCD with
   KSOPS: `rag-api-secrets`, `rag-api-key`, `portfolio-views`, `grafana-supabase`, `grafana-admin`,
-  `alertmanager-config`, and n8n's `n8n-r2-backup`, `n8n-encryption`, `n8n-runners`. Runbook (change, add,
+  `alertmanager-config`, n8n's `n8n-r2-backup`, `n8n-encryption`, `n8n-runners`, and (since 2026-10-26)
+  `cloudflare-api-token-secret` (ns `cert-manager`, `infrastructure/cert-manager/secrets/`, carries `Prune=false`)
+  and `tunnel-token` (ns `cloudflared`, `infrastructure/cloudflared/secrets/`; the parked app's namespace moved
+  from kube-system, see its header). Runbook (change, add,
   rotate, break-glass, ArgoCD upgrade): `clusters/homelab/bootstrap/SECRETS-SOPS.md`. Never read the age private
   key or print decrypted values.
 - `alertmanager-config` holds the WHOLE Alertmanager config (routing, Gmail address and app password) as one
@@ -133,8 +136,9 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
   `apps/monitoring/prometheus/secrets/alertmanager.example.yaml`; keep the two in step.
 - Only in the cluster: `argocd/sops-age` (the age private key, "secret zero"; also in the user's password
   manager), the KSOPS patches on `argocd-cm` and `argocd-repo-server` (re-apply after any ArgoCD upgrade), and
-  two Secrets still created by hand (to migrate, phase 6): `cloudflare-api-token-secret` (ns `cert-manager`,
-  key `api-token`) and `tunnel-token` (ns `kube-system`, key `token`).
+  the old hand-made `kube-system/tunnel-token` copy, which stays until the cloudflared app is enabled and
+  healthy, then is deleted by hand (no Secret is created by hand any more; change record
+  `clusters/homelab/bootstrap/CHANGE-2026-10-26-secrets-to-sops.md`).
   `apps/postgres/secrets.yaml` is plaintext and gitignored.
 - ArgoCD's `server.insecure: "true"` in the `argocd-cmd-params-cm` ConfigMap was patched in by hand.
 - **The remote is public and earlier history contains leaked credentials** (Postgres passwords, a Traefik

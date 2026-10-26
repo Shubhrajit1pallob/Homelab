@@ -4,3 +4,5 @@ resources:
   - configs/cluster-issuer.yaml
   - wildcard-cert.yaml
   - tlsstore.yaml
+generators:
+  - secrets/ksops-generator.yaml

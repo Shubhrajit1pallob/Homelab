@@ -4,7 +4,11 @@
 # Cloudflare would send it about half the traffic, where `localhost` is the pod itself -> intermittent 502s.
 # Cutover (needed so the public site survives shubmedia going offline): change every route's service to
 # http://traefik.kube-system.svc.cluster.local:80, run this in-cluster (pinned to the always-on node), and
-# retire the host connector in the same step. The Deployment also needs `tunnel-token` in kube-system.
+# retire the host connector in the same step. The `tunnel-token` Secret is SOPS-encrypted in
+# infrastructure/cloudflared/secrets/ and now lives in ns `cloudflared` (moved from kube-system).
+# Before enabling: add `cloudflared` to the namespaces in the ArgoCD cluster Secret
+# (clusters/homelab/bootstrap/cluster-in-cluster.yaml) and `kubectl apply -f` it; then, after the app is
+# healthy, delete the old kube-system/tunnel-token by hand.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -20,8 +24,10 @@ spec:
     path: infrastructure/cloudflared
   destination:
     server: https://kubernetes.default.svc
-    namespace: kube-system
+    namespace: cloudflared
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
