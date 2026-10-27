@@ -7,6 +7,9 @@ tunnel: 9d550ce4-f55f-4e2c-af9b-eb20450e5940
 credentials-file: /etc/cloudflared/creds/credentials.json
 metrics: 0.0.0.0:2000
 no-autoupdate: true
+# http2 (TCP 7844), not the default QUIC: the pod MTU is 1230 (flannel VXLAN over tailscale0), below QUIC's ~1252-byte
+# packets sent with Don't Fragment, so QUIC never connects; TCP 7844 works.
+protocol: http2
 ingress:
   - hostname: shubhrajitpallob.dev
     service: http://traefik.kube-system.svc.cluster.local:80

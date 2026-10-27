@@ -58,8 +58,9 @@ spec:
         - protocol: TCP
           port: 8000
 ---
-# Cloudflare's edge: tunnel connections use 7844 (QUIC over UDP, HTTP/2 fallback over TCP); 443 for the API calls
-# cloudflared makes. Private, tailnet and link-local ranges are excluded so a compromised pod can't reach them.
+# Cloudflare's edge: tunnel connections use TCP 7844 (config.yaml sets `protocol: http2`; QUIC over UDP 7844 can't
+# work through this cluster's 1230 MTU, so UDP is not allowed); 443 for the API calls cloudflared makes. Private,
+# tailnet and link-local ranges are excluded so a compromised pod can't reach them.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -83,8 +84,6 @@ spec:
               - 169.254.0.0/16
       ports:
         - protocol: TCP
-          port: 7844
-        - protocol: UDP
           port: 7844
         - protocol: TCP
           port: 443

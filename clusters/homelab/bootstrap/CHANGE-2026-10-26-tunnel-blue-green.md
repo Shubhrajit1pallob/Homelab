@@ -36,7 +36,7 @@ connectors serving the same tunnel with different `localhost` meanings.
 | Config (`tunnel: TUNNEL_UUID_CHANGE_ME`, metrics `0.0.0.0:2000`, `no-autoupdate`), generated as a hashed ConfigMap so edits roll the pods | `infrastructure/cloudflared/config.yaml` + `configMapGenerator` |
 | Hardened Deployment: image `cloudflare/cloudflared:2026.10.0` pinned by tag and digest, `tunnel --config ... run`, 2 replicas, `node-role=cloud`, `/ready` probes on 2000, non-root 65532, read-only root FS, no privilege escalation, drop ALL, seccomp RuntimeDefault, no ServiceAccount token | `infrastructure/cloudflared/deployment.yaml` |
 | PodDisruptionBudget `minAvailable: 1` | `infrastructure/cloudflared/pdb.yaml` |
-| NetworkPolicies: default-deny both ways; egress to kube-dns, to Traefik pods on **8000**, to the internet on TCP+UDP 7844 and TCP 443 (private, tailnet and link-local ranges excluded); ingress on 2000 from ns `monitoring` only | `infrastructure/cloudflared/networkpolicy.yaml` |
+| NetworkPolicies: default-deny both ways; egress to kube-dns, to Traefik pods on **8000**, to the internet on TCP 7844 and TCP 443 (UDP dropped, see "Found during phase 1") (private, tailnet and link-local ranges excluded); ingress on 2000 from ns `monitoring` only | `infrastructure/cloudflared/networkpolicy.yaml` |
 | Secret generator for `tunnel-credentials` (the encrypted file does not exist yet) | `infrastructure/cloudflared/secrets/ksops-generator.yaml` |
 | PodMonitor for `:2000/metrics` and PrometheusRule `CloudflaredDown` (<1 ready replica for 5m, critical) | `apps/monitoring/prometheus/cloudflared-{podmonitor,alerts}.yaml` |
 
@@ -97,6 +97,18 @@ records need no client TTL wait: the edge picks the change up within seconds to 
 2. After about a week of clean running: on shubmedia `systemctl disable --now cloudflared`; delete the old tunnel `k8s_cloud` in
    the dashboard; `kubectl -n kube-system delete secret tunnel-token`; delete the `cutover-test` DNS record.
 3. Update CLAUDE.md (ingress and single-point-of-failure text, ArgoCD namespace list, the Secrets list) with the user's OK.
+
+## Found during phase 1
+
+- **Symptom:** after enabling green, both cloudflared pods stayed 0/1 and restarted about every 60 s (killed by the liveness
+  probe on `/ready`, which stayed 503).
+- **Cause:** the pod MTU on this cluster is 1230 (flannel VXLAN over `tailscale0`). cloudflared's default protocol tries QUIC
+  first; QUIC sends about 1252-byte initial packets with Don't Fragment set, which never leave the pod network, so UDP 7844
+  timed out. DNS, TCP 7844 and the API on 443 all worked. With `protocol: auto`, QUIC is retried with backoff (4, 8, 16, 32 s)
+  and the probe killed the pod before it fell back to HTTP/2. It was not the NetworkPolicy.
+- **Fix:** `protocol: http2` in `config.yaml` (connects in seconds over TCP 7844), and the now-unused UDP 7844 egress rule was
+  dropped from `networkpolicy.yaml` (least privilege). The probes were left as they are.
+- **Impact:** none. Blue carried all traffic throughout; no hostname had been flipped yet.
 
 ## Risks and known gaps
 
