@@ -55,7 +55,10 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
   `monitoring-config`, `rag-api` (enabled 2026-10-14; image pin is in `apps/rag-api/kustomization.yaml`), and
   (added 2026-10-19) `cnpg-operator` (chart cloudnative-pg 0.29.1, ns `cnpg-system`), `cnpg-barman-plugin`
   (plugin-barman-cloud 0.8.1, same ns) and `n8n` (`apps/n8n/tenants/shawn`: a Kustomize base plus a tenant
-  overlay, laid out so another tenant is a new overlay). See "n8n" below.
+  overlay, laid out so another tenant is a new overlay). See "n8n" below. Added 2026-10-27: `cloudflared` (ns
+  `cloudflared`, 2 replicas on `agent-1`, locally managed tunnel `k8s-cluster`, wildcard ingress in
+  `infrastructure/cloudflared/config.yaml`, `protocol: http2` because the pod MTU of 1230 breaks QUIC; change
+  record `clusters/homelab/bootstrap/CHANGE-2026-10-26-tunnel-blue-green.md`).
   - rag-api's Secrets are SOPS-encrypted in `apps/rag-api/secrets/`. The portfolio's chat key is in
     `apps/portfolio/secrets/rag-api-key.enc.yaml` and is switched on separately (step 7 in the Application's
     header).
@@ -63,8 +66,7 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
     `apps/rag-api/kustomization.yaml`. Keep that entry's shape.
   - rag-api's non-secret settings are in `apps/rag-api/config.env`, generated into a ConfigMap whose name
     carries a content hash (`configMapGenerator`), so any edit rolls the pods on its own.
-- Parked: `cloudflared` (needs a tunnel cutover, see its header) and `elk` (**never enable on this
-  hardware**: ~2.6 GiB of requests).
+- Parked: `elk` (**never enable on this hardware**: ~2.6 GiB of requests).
 - cert-manager was adopted by ArgoCD on 2026-10-04 (chart v1.21.2, no reissue of the wildcard cert). A stale
   Helm release (revision 1) is still recorded; never run helm against cert-manager again (`helm upgrade`
   would fight ArgoCD; `helm uninstall` deletes the live resources). The ArgoCD UI IngressRoutes
@@ -73,7 +75,7 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
   unreachable (kubectl still works).
 - ArgoCD's in-cluster cluster Secret (`clusters/homelab/bootstrap/cluster-in-cluster.yaml`, hand-applied, not
   synced) limits ArgoCD to the namespaces argocd, portfolio, cert-manager, kube-system, monitoring, rag-api,
-  cnpg-system and n8n (file and live cluster match, checked 2026-10-24). Before enabling an Application that
+  cnpg-system, n8n and cloudflared (cloudflared added 2026-10-27; file and live cluster matched on 2026-10-24). Before enabling an Application that
   deploys into any other namespace (media, soc-lab, ...), add the namespace
   there and `kubectl apply -f` it, or the app fails with `namespace "X" is not managed`.
 - On disk with **no** Application (so not deployed): `infrastructure/longhorn` (ingress + cert only, no chart),
@@ -99,7 +101,7 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
   (the clock was 4h behind). agent-1 now runs with `--accept-dns=false`. Incident report and copy-paste fix:
   `clusters/homelab/bootstrap/INCIDENT-2026-10-10-agent1-dns.md`. Ubuntu 26.04 uses chrony, not systemd-timesyncd.
   Kernel is now 7.0.0-38. `shubmedia`: a laptop, 4 CPU, 3.5 GiB, may go offline; it
-  hosts the heavy monitoring pods and the Cloudflare tunnel connector. All nodes are amd64 and join via
+  hosts the heavy monitoring pods and ArgoCD's application controller (the public site no longer depends on it). All nodes are amd64 and join via
   Tailscale (internal IPs are `100.x`).
 - About 5.5 GiB is free across the two workers. Every workload needs requests and a memory limit.
 
@@ -107,10 +109,17 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
 
 - No MetalLB. K3s's built-in ServiceLB exposes the **built-in Traefik** (kube-system, installed by K3s, not
   managed here) on ports 80/443 of every node's Tailscale IP.
-- Public traffic uses the Cloudflare Tunnel `k8s_cloud`: published routes point at `http://localhost:80`
-  (connector on the `shubmedia` host), TLS ends at Cloudflare, and admin UIs sit behind Cloudflare Access.
-  Tunnel routes and Access apps are configured in the Cloudflare dashboard, not in this repo. Tunnel traffic
-  arrives on Traefik's `web` entrypoint; direct Tailscale access uses `websecure` with the wildcard cert.
+- Public traffic enters through the in-cluster `cloudflared` Deployment (ns `cloudflared`, 2 replicas on
+  `agent-1`), the locally managed tunnel `k8s-cluster` (since 2026-10-27). Its wildcard ingress
+  (`infrastructure/cloudflared/config.yaml`) sends everything to `http://traefik.kube-system.svc.cluster.local:80`,
+  Traefik's `web` entrypoint; it runs `protocol: http2` because the pod MTU of 1230 (flannel over Tailscale)
+  breaks QUIC. TLS ends at Cloudflare and admin UIs sit behind Cloudflare Access. DNS records are proxied CNAMEs
+  to `<tunnel-id>.cfargotunnel.com`, and Access apps are managed by hand in the Cloudflare dashboard, not in
+  this repo. To move a hostname, edit its CNAME target; never delete a route on a dashboard-managed tunnel (that
+  also deletes the DNS record). Direct Tailscale access uses `websecure` with the wildcard cert. The old
+  dashboard tunnel `k8s_cloud` and its laptop connector are kept only for one SSH route to the laptop node
+  (open item R8: confirm it sits behind an Access app or replace it with Tailscale SSH, then retire both and
+  delete `kube-system/tunnel-token`). Change record: `clusters/homelab/bootstrap/CHANGE-2026-10-26-tunnel-blue-green.md`.
 - Public traffic depends on `server-1`: the single Traefik pod runs there, so if server-1 is down or
   rebooting the site is unreachable even though the portfolio pods on `agent-1` keep running.
 - A hostname cannot be both a proxied tunnel name and a DNS-only Tailscale address, so where both are wanted
@@ -126,8 +135,8 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
   KSOPS: `rag-api-secrets`, `rag-api-key`, `portfolio-views`, `grafana-supabase`, `grafana-admin`,
   `alertmanager-config`, n8n's `n8n-r2-backup`, `n8n-encryption`, `n8n-runners`, and (since 2026-10-26)
   `cloudflare-api-token-secret` (ns `cert-manager`, `infrastructure/cert-manager/secrets/`, carries `Prune=false`)
-  and `tunnel-token` (ns `cloudflared`, `infrastructure/cloudflared/secrets/`; the parked app's namespace moved
-  from kube-system, see its header). Runbook (change, add,
+  and `tunnel-credentials` (ns `cloudflared`, `infrastructure/cloudflared/secrets/`, the green tunnel's
+  credentials JSON). Runbook (change, add,
   rotate, break-glass, ArgoCD upgrade): `clusters/homelab/bootstrap/SECRETS-SOPS.md`. Never read the age private
   key or print decrypted values.
 - `alertmanager-config` holds the WHOLE Alertmanager config (routing, Gmail address and app password) as one
@@ -136,9 +145,8 @@ clusters/homelab/bootstrap/           hand-applied ArgoCD tuning (ConfigMap/Secr
   `apps/monitoring/prometheus/secrets/alertmanager.example.yaml`; keep the two in step.
 - Only in the cluster: `argocd/sops-age` (the age private key, "secret zero"; also in the user's password
   manager), the KSOPS patches on `argocd-cm` and `argocd-repo-server` (re-apply after any ArgoCD upgrade), and
-  the old hand-made `kube-system/tunnel-token` copy, which stays until the cloudflared app is enabled and
-  healthy, then is deleted by hand (no Secret is created by hand any more; change record
-  `clusters/homelab/bootstrap/CHANGE-2026-10-26-secrets-to-sops.md`).
+  the old hand-made `kube-system/tunnel-token` (the blue tunnel's token, no longer used; delete it by hand).
+  No other Secret is created by hand; change record `clusters/homelab/bootstrap/CHANGE-2026-10-26-secrets-to-sops.md`.
   `apps/postgres/secrets.yaml` is plaintext and gitignored.
 - ArgoCD's `server.insecure: "true"` in the `argocd-cmd-params-cm` ConfigMap was patched in by hand.
 - **The remote is public and earlier history contains leaked credentials** (Postgres passwords, a Traefik
@@ -172,7 +180,7 @@ Detail lives in `apps/n8n/REQUIREMENTS.md`, `apps/n8n/restore-test/RESTORE.md` a
   ENOTFOUND, so n8n sets `dnsConfig ndots: "1"`; use short names or full `.svc.cluster.local` FQDNs, never
   `svc.ns`. (3) `argocd app get` in core mode needs the kubectl context namespace set to `argocd`.
 
-## Current status and next steps (as of 2026-10-24; update or delete when stale)
+## Current status and next steps (as of 2026-10-27; update or delete when stale)
 
 Older bullets below are history from 2026-10-04 and earlier; where they conflict with the sections above
 (enabled apps, Alertmanager, n8n), the sections above win.
@@ -182,8 +190,8 @@ Older bullets below are history from 2026-10-04 and earlier; where they conflict
   reconciliation interval (so merges deploy within ~10 min, or press Refresh), and dex/applicationset-
   controller/notifications-controller kept at 0. Only argocd-application-controller runs on `shubmedia` (the
   laptop); argocd-server, repo-server and redis run on `agent-1`. If shubmedia is offline, reconciliation
-  stops (the controller is there) AND the public site goes down: the only Cloudflare Tunnel connector runs
-  on the shubmedia host (corrected 2026-10-05; earlier text wrongly said the site keeps serving). A 2026-09-28 OOM-thrash incident on
+  stops (the controller is there) and monitoring stops, but the public site stays up (cloudflared runs
+  in-cluster; laptop-off test passed 2026-10-27). A 2026-09-28 OOM-thrash incident on
   server-1 (no swap) preceded this; fixed with a 2 GiB swapfile (`vm.swappiness=10`, recreate on any rebuild).
 - **Portfolio is live and managed by ArgoCD** (the no-op adoption on 2026-09-29), 2/2 pods on `agent-1`,
   public at the apex and `www` through the tunnel.
@@ -201,8 +209,8 @@ Older bullets below are history from 2026-10-04 and earlier; where they conflict
   prefer agent-1 (preferred affinity on node-role=cloud). `argocd-config` enabled 2026-10-04.
   `kube-prometheus-stack` + `monitoring-config` enabled 2026-10-04 (see Monitoring).
 - **Apex fixed 2026-10-04:** `shubhrajitpallob.dev` returned Cloudflare 522 because the apex `@` was a proxied
-  A record pointing at a leftover Namecheap parking IP from the domain move. It's now a public hostname on the
-  `k8s_cloud` tunnel, like `www`. Two `NS` records for `registrar-servers.com` are also left over in the
+  A record pointing at a leftover Namecheap parking IP from the domain move. It's now a proxied CNAME to the
+  `k8s-cluster` tunnel, like `www`. Two `NS` records for `registrar-servers.com` are also left over in the
   Cloudflare zone; harmless for now, but the user should confirm the Namecheap account's nameservers point to
   Cloudflare.
 - **Media server (planned 2026-10-04, nothing provisioned):** Jellyfin on a new InterServer 2-slice Storage
@@ -223,6 +231,10 @@ Older bullets below are history from 2026-10-04 and earlier; where they conflict
   controller ~152Mi -> ~337Mi; Prometheus ~115k series. Not cAdvisor (~3k): ~51k were K3s control-plane metrics duplicated on server-1's
   kubelet `/metrics`; dropped there on 2026-10-17 (`kubelet.serviceMonitor.metricRelabelings` in values.yaml). Grafana is
   public via a tunnel hostname behind Cloudflare Access; `grafana-ts.` waits on the Tailscale port issue.
+  Our alert rules aggregate away scrape labels (`max by (...)`) so email subjects stay short; the subject comes
+  from `headers.Subject` on the email receiver in `alertmanager-config` (template in
+  `alertmanager.example.yaml`; paste it into the Secret with `sops edit`). `CloudflaredDown` (<1 ready replica
+  for 5m, critical) is in `cloudflared-alerts.yaml`.
 - **SOC lab:** planning only. See `apps/soc-lab/PLAN.md` (same cluster, isolated namespaces, mandatory
   guardrails, AWS credits for temporary lab resources with budget guardrails). Phase 0 is next: secure the
   AWS account, set up budget alerts, and write (not apply) the namespace/NetworkPolicy/quota manifests.
@@ -231,9 +243,6 @@ Older bullets below are history from 2026-10-04 and earlier; where they conflict
   show GitOps and monitoring as live, and a blog series started (Post 1 `hybrid-k3s-homelab`, with a new
   staircase diagram). Public-content rules: no IPs, tailnet or admin hostnames; role names instead of node
   names; no unfixed weaknesses or leaked-credential history.
-- **Single point of failure, laptop tunnel:** the only Cloudflare Tunnel connector runs on the shubmedia host, so
-  a laptop outage takes the public site down. Fix: run cloudflared in-cluster on the VPS nodes (the parked
-  `cloudflared` app, which needs a tunnel cutover; plan it before enabling).
 - **Lower priority:** rotate the Postgres password leaked in Git history; review
   `scripts/argocd-setup-interserver.sh` (it patches ArgoCD nodeSelectors to `workload: gitops`); harden SSH on
   server-1 (it currently allows root password login on its public IP; move to key-only and ideally

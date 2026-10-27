@@ -126,6 +126,28 @@ records need no client TTL wait: the edge picks the change up within seconds to 
 - **Lesson:** during the cutover only EDIT CNAME targets; never delete a route on the blue tunnel (deleting it also deletes
   the DNS record, which is how this happened). Blue routes are removed in phase 3, together with the old tunnel.
 
+## Results (closed out 2026-10-27)
+
+**Status: complete, except two open items below.**
+
+- **Phase 2 done.** Order: the ArgoCD UI hostname, Grafana, `www`, the apex, n8n. Every hostname is now on green.
+- **External checks:** apex and `www` return 200; admin apps return 302 to the Cloudflare Access login; n8n `/webhook/*` reaches n8n.
+  GitHub webhooks were delivered to n8n through green and the n8n executions succeeded.
+- **Blue's public routes were removed right after the flips**, earlier than planned (the plan kept them a week). Rollback therefore
+  became "recreate the route and CNAME", minutes rather than one CNAME edit. Accepted.
+- **Laptop-off test PASSED 2026-10-27 at about 15:39 UTC:** the node went NotReady, the site returned 200, admin apps returned
+  302, and both cloudflared replicas stayed Running with 0 restarts. Expected losses while the laptop is off: Grafana and ArgoCD syncing.
+  Two earlier attempts did not actually take the laptop off (lid closed, but the node kept heartbeating). Lesson: verify a failure
+  test from the cluster side (`kubectl get nodes`), not by what the laptop looks like.
+- **Alerting worked:** `CloudflaredDown` fired during the QUIC crash loop and resolved after the http2 fix; both emails arrived.
+- **Process note:** these changes went to `main` as direct commits, not through pull requests, so they had no PR review.
+
+**Open items:**
+- **(a) R8, the old tunnel `k8s_cloud` and its host connector on the laptop** are kept for ONE SSH route to the laptop node. Open until the
+  user confirms that route sits behind a Cloudflare Access app, or removes it in favour of Tailscale SSH. After that, retire both
+  (phase 3, step 2).
+- **(b) `kubectl -n kube-system delete secret tunnel-token`** (the old copy; the user runs it).
+
 ## Risks and known gaps
 
 - **agent-1 now carries the whole site path** (connectors, plus the portfolio pods). Both replicas share agent-1 because it

@@ -12,7 +12,9 @@ spec:
     - name: cloudflared
       rules:
         - alert: CloudflaredDown
-          expr: kube_deployment_status_replicas_ready{namespace="cloudflared", deployment="cloudflared"} < 1
+          # max by (...) drops the kube-state-metrics scrape labels (pod, instance, job, service...) so the alert, and
+          # Alertmanager's email subject, carry only namespace, deployment and severity.
+          expr: max by (namespace, deployment) (kube_deployment_status_replicas_ready{namespace="cloudflared", deployment="cloudflared"}) < 1
           for: 5m
           labels:
             severity: critical

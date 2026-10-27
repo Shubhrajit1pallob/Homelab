@@ -38,7 +38,7 @@ spec:
 
         - alert: N8nWalArchivingFailing
           expr: |
-            increase(cnpg_pg_stat_archiver_failed_count{namespace="n8n"}[15m]) > 0
+            max by (namespace) (increase(cnpg_pg_stat_archiver_failed_count{namespace="n8n"}[15m])) > 0
           labels:
             severity: warning
             namespace: n8n

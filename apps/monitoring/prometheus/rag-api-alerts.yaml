@@ -24,13 +24,16 @@ spec:
             description: "Prometheus can't scrape rag-api:9090. The chat may be down, or only the metrics server failed to start (check the pod log)."
 
         - alert: RagApiUpstreamErrors
+          # The upstream's name is the metric's own `service` label, which Prometheus renames `exported_service`
+          # because the scrape adds its own `service` (the Kubernetes Service, rag-api). Summing by `service` printed
+          # "rag-api" instead of voyage/anthropic/database.
           expr: |
-            sum by (service) (increase(rag_upstream_errors_total[15m])) > 3
+            sum by (exported_service) (increase(rag_upstream_errors_total[15m])) > 3
           labels:
             severity: warning
           annotations:
-            summary: "rag-api: {{ $labels.service }} errors"
-            description: "{{ $value | printf \"%.0f\" }} failed calls to {{ $labels.service }} in 15 minutes (visitors got a 503)."
+            summary: "rag-api: {{ $labels.exported_service }} errors"
+            description: "{{ $value | printf \"%.0f\" }} failed calls to {{ $labels.exported_service }} in 15 minutes (visitors got a 503)."
 
         - alert: RagApiDailyBudgetHit
           # The DAILY_QUERY_LIMIT (config.env) was reached: popularity or abuse. Resets at 00:00 UTC.
@@ -59,7 +62,7 @@ spec:
           # that would keep firing after later runs succeed. Also catches never-ran, suspended, or a deleted
           # CronJob (the absent() part). Schedule is daily 09:23 UTC; 26h leaves slack for the start deadline.
           expr: |
-            (time() - kube_cronjob_status_last_successful_time{namespace="rag-api", cronjob="supabase-keepalive"}) > 26 * 3600
+            (time() - max by (namespace, cronjob) (kube_cronjob_status_last_successful_time{namespace="rag-api", cronjob="supabase-keepalive"})) > 26 * 3600
             or absent(kube_cronjob_status_last_successful_time{namespace="rag-api", cronjob="supabase-keepalive"})
           for: 10m
           labels:
