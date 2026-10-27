@@ -1,0 +1,11 @@
+# Owned here (not by CreateNamespace) so the Pod Security labels exist from the first sync.
+# `cloudflared` must also be in the ArgoCD cluster Secret's namespaces (clusters/homelab/bootstrap/cluster-in-cluster.yaml).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cloudflared
+  labels:
+    app.kubernetes.io/part-of: cloudflared
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

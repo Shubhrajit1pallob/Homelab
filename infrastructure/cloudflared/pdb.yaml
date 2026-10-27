@@ -1,0 +1,12 @@
+# Keeps one connector up during voluntary disruptions. Both replicas share agent-1 (the only node-role=cloud
+# node), so a full `kubectl drain agent-1` will wait on this budget: see the change record before resizing agent-1.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cloudflared
+  namespace: cloudflared
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cloudflared

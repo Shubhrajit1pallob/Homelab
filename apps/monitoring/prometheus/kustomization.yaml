@@ -11,6 +11,8 @@ resources:
   - rag-api-servicemonitor.yaml
   - rag-api-alerts.yaml
   - rag-api-dashboard.yaml
+  - cloudflared-podmonitor.yaml
+  - cloudflared-alerts.yaml
   - grafana-route.yaml
 # Secrets grafana-supabase, grafana-admin and alertmanager-config, SOPS-encrypted in secrets/ (see
 # clusters/homelab/bootstrap/SECRETS-SOPS.md). secrets/alertmanager.example.yaml is a redacted copy, not deployed.

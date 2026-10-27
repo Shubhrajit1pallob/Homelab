@@ -3,32 +3,88 @@ kind: Deployment
 metadata:
   name: cloudflared
   namespace: cloudflared
+  labels:
+    app.kubernetes.io/name: cloudflared
 spec:
-  replicas: 1
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
-      app: cloudflared
+      app.kubernetes.io/name: cloudflared
   template:
     metadata:
       labels:
-        app: cloudflared
+        app.kubernetes.io/name: cloudflared
     spec:
+      # The public site's path runs through these pods, so they sit on the always-on VPS worker, never the laptop.
+      # Only agent-1 carries node-role=cloud, so both replicas share that node (protects against a pod or
+      # container failure, not a node failure; accepted in the change record).
+      nodeSelector:
+        node-role: cloud
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: cloudflared
-          image: cloudflare/cloudflared:latest
+          # 2026.10.0 = newest release at least 2 weeks old on 2026-10-26 (published 2026-10-05); pinned by
+          # digest (the multi-arch index) so the tag can't move. Bump tag and digest together.
+          image: cloudflare/cloudflared:2026.10.0@sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07
           args:
             - tunnel
-            - --no-autoupdate
+            - --config
+            - /etc/cloudflared/config/config.yaml
             - run
-          env:
-            - name: TUNNEL_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: tunnel-token
-                  key: token
+          ports:
+            - name: metrics
+              containerPort: 2000
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 6
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # Cloudflare's sizing guidance is per host (4 GB / 4 cores for large deployments), with no per-container
+          # figure. This site's traffic is small; the old 96Mi was never measured. 128Mi limit gives headroom for
+          # 4 edge connections per replica; requests stay low. Re-check `kubectl top pod -n cloudflared` after cutover.
           resources:
             requests:
               cpu: 10m
-              memory: 32Mi
+              memory: 48Mi
             limits:
-              memory: 96Mi
+              memory: 128Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/cloudflared/config
+              readOnly: true
+            - name: creds
+              mountPath: /etc/cloudflared/creds
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: cloudflared-config
+        - name: creds
+          secret:
+            secretName: tunnel-credentials
+            defaultMode: 0440

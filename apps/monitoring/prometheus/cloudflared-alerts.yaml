@@ -1,0 +1,21 @@
+# Loaded by Prometheus Operator like the other rules here (ruleSelector: {} in values.yaml).
+# Silent while the cloudflared app is parked: the kube-state-metrics series doesn't exist yet.
+# Caveat (see CHANGE-2026-10-26-tunnel-blue-green.md): Prometheus runs on shubmedia, so this can't fire if the
+# laptop is the thing that is down, and it can't see the public site itself; it only sees the connector pods.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cloudflared-alerts
+  namespace: monitoring
+spec:
+  groups:
+    - name: cloudflared
+      rules:
+        - alert: CloudflaredDown
+          expr: kube_deployment_status_replicas_ready{namespace="cloudflared", deployment="cloudflared"} < 1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "No cloudflared replica is ready"
+            description: "The in-cluster Cloudflare Tunnel connector has had no ready replica for 5 minutes, so hostnames pointed at the green tunnel are unreachable."

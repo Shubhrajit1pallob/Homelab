@@ -1,6 +1,19 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
+  - namespace.yaml
   - deployment.yaml
+  - pdb.yaml
+  - networkpolicy.yaml
+# config.yaml becomes ConfigMap `cloudflared-config-<hash>`; the Deployment's reference is rewritten to match, so
+# any edit rolls the pods (same idiom as apps/rag-api).
+configMapGenerator:
+  - name: cloudflared-config
+    namespace: cloudflared
+    files:
+      - config.yaml
+# Secret `tunnel-credentials` (the green tunnel's credentials JSON), SOPS-encrypted in secrets/ once the tunnel
+# exists. secrets/tunnel-credentials.enc.yaml is NOT created yet: until it is, a full build with the generator
+# fails, which is fine while this app is parked. See CHANGE-2026-10-26-tunnel-blue-green.md, phase 1.
 generators:
   - secrets/ksops-generator.yaml

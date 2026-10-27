@@ -1,0 +1,19 @@
+# Scrapes cloudflared's /metrics (port 2000) once the cloudflared app is enabled (it is parked until the tunnel
+# cutover, see clusters/homelab/bootstrap/CHANGE-2026-10-26-tunnel-blue-green.md); matches nothing until then.
+# A PodMonitor because the Deployment has no Service. The cloudflared NetworkPolicy allows ns `monitoring` to 2000.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: cloudflared
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - cloudflared
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cloudflared
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 60s

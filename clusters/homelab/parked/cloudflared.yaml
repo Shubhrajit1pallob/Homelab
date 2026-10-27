@@ -1,14 +1,17 @@
-# PARKED - do not enable until the tunnel cutover is planned.
-# The `k8s_cloud` tunnel's published routes point at http://localhost:80, which only works for the connector
-# running on the shubmedia host. An in-cluster connector using the same token would join the tunnel and
-# Cloudflare would send it about half the traffic, where `localhost` is the pod itself -> intermittent 502s.
-# Cutover (needed so the public site survives shubmedia going offline): change every route's service to
-# http://traefik.kube-system.svc.cluster.local:80, run this in-cluster (pinned to the always-on node), and
-# retire the host connector in the same step. The `tunnel-token` Secret is SOPS-encrypted in
-# infrastructure/cloudflared/secrets/ and now lives in ns `cloudflared` (moved from kube-system).
-# Before enabling: add `cloudflared` to the namespaces in the ArgoCD cluster Secret
-# (clusters/homelab/bootstrap/cluster-in-cluster.yaml) and `kubectl apply -f` it; then, after the app is
-# healthy, delete the old kube-system/tunnel-token by hand.
+# PARKED - blue/green tunnel cutover. Plan, phases and rollback: clusters/homelab/bootstrap/CHANGE-2026-10-26-tunnel-blue-green.md
+# BLUE = the dashboard-managed tunnel `k8s_cloud`, connector on the shubmedia host, routes -> http://localhost:80. Left
+# untouched as the rollback. GREEN = a NEW locally-managed tunnel `k8s-cluster` run by this app in-cluster (2 replicas on
+# agent-1), ingress in infrastructure/cloudflared/config.yaml (wildcards -> Traefik's in-cluster Service). The two never
+# share a token, so there is no split traffic: each hostname's DNS CNAME points at exactly one tunnel, and the cutover
+# is flipping those CNAMEs one at a time (rollback = flip back).
+# Before enabling (details in the change record, phase 1):
+#   1. the user creates the tunnel (`cloudflared tunnel create k8s-cluster`) and the credentials are encrypted into
+#      infrastructure/cloudflared/secrets/tunnel-credentials.enc.yaml (Secret `tunnel-credentials`, key `credentials.json`);
+#   2. replace TUNNEL_UUID_CHANGE_ME in infrastructure/cloudflared/config.yaml with the new tunnel's UUID;
+#   3. add `cloudflared` to the namespaces in the ArgoCD cluster Secret (clusters/homelab/bootstrap/cluster-in-cluster.yaml)
+#      and `kubectl apply -f` it, or the sync fails with `namespace "cloudflared" is not managed`;
+#   4. then move this file to applications/. The Namespace (with Pod Security labels) comes from the kustomization.
+# Cleanup in phase 3: delete the old kube-system/tunnel-token by hand, the blue tunnel and the host connector.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -29,5 +32,3 @@ spec:
     automated:
       prune: true
       selfHeal: true
-    syncOptions:
-      - CreateNamespace=true

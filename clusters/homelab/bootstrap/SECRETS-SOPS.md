@@ -39,7 +39,7 @@ Never write a decrypted file to disk; `*.dec.yaml` and `*.plain.yaml` are gitign
 | `n8n-encryption` (since 2026-10-19) | n8n | `apps/n8n/tenants/shawn/secrets/n8n-encryption.enc.yaml` | n8n Deployment |
 | `n8n-runners` (since 2026-10-19) | n8n | `apps/n8n/tenants/shawn/secrets/n8n-runners.enc.yaml` | n8n Deployment (n8n and its task-runners sidecar) |
 | `alertmanager-config` (key `alertmanager.yaml`, since 2026-10-21) | monitoring | `apps/monitoring/prometheus/secrets/alertmanager-config.enc.yaml` | Alertmanager (`alertmanagerSpec.configSecret` in values.yaml) |
-| `tunnel-token` (key `token`, since 2026-10-26) | cloudflared | `infrastructure/cloudflared/secrets/tunnel-token.enc.yaml` | the parked `cloudflared` Deployment (nothing deployed yet) |
+| `tunnel-credentials` (key `credentials.json`; file created in phase 1 of the tunnel cutover, NOT yet) | cloudflared | `infrastructure/cloudflared/secrets/tunnel-credentials.enc.yaml` | the parked `cloudflared` Deployment (green tunnel `k8s-cluster`); see `CHANGE-2026-10-26-tunnel-blue-green.md` |
 | `cloudflare-api-token-secret` (key `api-token`, since 2026-10-26) | cert-manager | `infrastructure/cert-manager/secrets/cloudflare-api-token.enc.yaml` | `ClusterIssuer cloudflare-clusterissuer` (DNS-01). Carries `Prune=false`. Details: `CHANGE-2026-10-26-secrets-to-sops.md` |
 
 `N8N_ENCRYPTION_KEY` must ALSO be kept in the password manager: n8n encrypts every saved credential with it, so
@@ -53,7 +53,7 @@ see them: after `sops edit`, check with `sops -d <file> | grep -c CHANGE_ME` (pr
 The operator reloads Alertmanager on its own when the Secret changes (config-reloader), so no restart is needed.
 
 No hand-made Secrets are left except `argocd/sops-age` (secret zero). The old `kube-system/tunnel-token` still
-exists in the cluster and is deleted by hand when the cloudflared app is enabled.
+exists in the cluster (the blue tunnel's token is no longer in Git) and is deleted by hand in phase 3 of the tunnel cutover.
 
 ### Change a value
 1. `sops edit <file>.enc.yaml` (opens the decrypted copy in your editor; saving re-encrypts it).
