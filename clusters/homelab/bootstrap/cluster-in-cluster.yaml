@@ -1,8 +1,9 @@
 # NOT synced by ArgoCD (applied by hand, see README). Limits the controller's in-cluster cache to the
-# namespaces argocd, portfolio, cert-manager, kube-system, monitoring, rag-api, cnpg-system and n8n
+# namespaces argocd, portfolio, cert-manager, kube-system, monitoring, rag-api, cnpg-system, n8n and cloudflared
 # (cert-manager/kube-system added 2026-10-04 for the cert-manager adoption, monitoring added 2026-10-04 for
 # kube-prometheus-stack, rag-api added 2026-10-12 for the parked rag-api app, cnpg-system and n8n added
-# 2026-10-19 for the CNPG operator and n8n; harmless to apply before those apps are enabled);
+# 2026-10-19 for the CNPG operator and n8n, cloudflared added 2026-10-27 for the parked in-cluster tunnel
+# connector; harmless to apply before those apps are enabled);
 # clusterResources is "true" because apps/portfolio includes a Namespace.
 # Any new namespace an Application deploys into must be added to `namespaces` below and this Secret
 # re-applied by hand with `kubectl apply -f`, or the Application fails with `namespace "X" is not managed`.
@@ -19,5 +20,5 @@ stringData:
   name: in-cluster
   server: https://kubernetes.default.svc
   config: '{"tlsClientConfig":{"insecure":false}}'
-  namespaces: "argocd,portfolio,cert-manager,kube-system,monitoring,rag-api,cnpg-system,n8n"
+  namespaces: "argocd,portfolio,cert-manager,kube-system,monitoring,rag-api,cnpg-system,n8n,cloudflared"
   clusterResources: "true"

@@ -1,10 +1,9 @@
 # cloudflared config for the GREEN tunnel `k8s-cluster` (locally managed; plan: clusters/homelab/bootstrap/CHANGE-2026-10-26-tunnel-blue-green.md).
 # Becomes the ConfigMap `cloudflared-config-<hash>` via configMapGenerator, so any edit rolls the pods.
-# BEFORE ENABLING: replace TUNNEL_UUID_CHANGE_ME with the UUID printed by `cloudflared tunnel create k8s-cluster`
-# (a UUID is an identifier, not a secret; the credentials JSON is the secret and lives in secrets/).
+# The tunnel UUID is an identifier, not a secret; the credentials JSON is the secret and lives in secrets/.
 # Wildcards only: admin hostnames are never listed in this public repo. Which names are public and which sit
 # behind Cloudflare Access is decided in the Cloudflare dashboard (DNS records and Access apps), not here.
-tunnel: TUNNEL_UUID_CHANGE_ME
+tunnel: 9d550ce4-f55f-4e2c-af9b-eb20450e5940
 credentials-file: /etc/cloudflared/creds/credentials.json
 metrics: 0.0.0.0:2000
 no-autoupdate: true
