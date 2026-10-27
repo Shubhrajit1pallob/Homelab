@@ -74,7 +74,8 @@ Findings behind the choices:
 5. User commits (branch + PR), merges.
 6. User adds `cloudflared` to the namespaces in `clusters/homelab/bootstrap/cluster-in-cluster.yaml` and
    `kubectl apply -f` it, then moves the app `parked/` -> `applications/` (`git mv`) and merges.
-7. Test without touching real hostnames. DNS is done in the Cloudflare dashboard only (`cert.pem` was deleted in step 3, and
+7. (Skipped in practice: the ArgoCD UI hostname became the first hostname on green instead, see "Deviation during phase 2".)
+   Test without touching real hostnames. DNS is done in the Cloudflare dashboard only (`cert.pem` was deleted in step 3, and
    `cloudflared tunnel route dns` needs it): create a **proxied CNAME** `cutover-test` -> `<UUID>.cfargotunnel.com` by hand.
    Expect Traefik's 404 for `cutover-test.shubhrajitpallob.dev` (Traefik has no route for it), and the dashboard shows the green tunnel with
    2 healthy connectors. Also check `kubectl get pods -n cloudflared` (2/2 Ready), `kubectl top pod -n cloudflared`, and that
@@ -82,7 +83,9 @@ Findings behind the choices:
 
 ## Phase 2: flip DNS, one hostname at a time
 
-Order: Grafana, then `www`, then the apex, then n8n. For each hostname: in the Cloudflare dashboard, edit that record's CNAME
+Order: the ArgoCD UI hostname (done 2026-10-27, see the deviation above), then Grafana, then `www`, then the apex, then n8n.
+**Only edit CNAME targets; never delete a route on the blue tunnel during the cutover** (deleting a route on a
+dashboard-managed tunnel also deletes its DNS record; blue routes go in phase 3). For each hostname: in the Cloudflare dashboard, edit that record's CNAME
 target to `<new-UUID>.cfargotunnel.com` (dashboard only; no `cloudflared tunnel route dns`, since `cert.pem` is gone). Proxied
 records need no client TTL wait: the edge picks the change up within seconds to a minute, so give it a minute, then check:
 - the page loads;
@@ -95,7 +98,7 @@ records need no client TTL wait: the edge picks the change up within seconds to 
 
 1. Stop or power off shubmedia (or stop its connector) and confirm the public site, admin names and the n8n webhook still work.
 2. After about a week of clean running: on shubmedia `systemctl disable --now cloudflared`; delete the old tunnel `k8s_cloud` in
-   the dashboard; `kubectl -n kube-system delete secret tunnel-token`; delete the `cutover-test` DNS record.
+   the dashboard; `kubectl -n kube-system delete secret tunnel-token`. No `cutover-test` record was ever created, so there is nothing to delete there.
 3. Update CLAUDE.md (ingress and single-point-of-failure text, ArgoCD namespace list, the Secrets list) with the user's OK.
 
 ## Found during phase 1
@@ -109,6 +112,19 @@ records need no client TTL wait: the edge picks the change up within seconds to 
 - **Fix:** `protocol: http2` in `config.yaml` (connects in seconds over TCP 7844), and the now-unused UDP 7844 egress rule was
   dropped from `networkpolicy.yaml` (least privilege). The probes were left as they are.
 - **Impact:** none. Blue carried all traffic throughout; no hostname had been flipped yet.
+
+## Deviation during phase 2 (2026-10-27)
+
+- **What happened:** the user deleted the ArgoCD UI hostname's route from the BLUE (dashboard-managed) tunnel. Deleting a
+  route on a dashboard-managed tunnel also deletes that hostname's DNS CNAME, so the ArgoCD UI hostname went down. ArgoCD
+  itself and kubectl were unaffected, and no other hostname was touched.
+- **Decision:** roll forward instead of restoring blue. The user confirmed the ArgoCD Access app still existed, then created a
+  proxied CNAME for the hostname -> `<green UUID>.cfargotunnel.com`.
+- **Result:** `dig` via 1.1.1.1 returns Cloudflare edge IPs, and `curl` returns a 302 to the Cloudflare Access login on the
+  team domain, so Access still protects it. The ArgoCD UI hostname is the first hostname served by green and stands in for the
+  `cutover-test` record, which was never created.
+- **Lesson:** during the cutover only EDIT CNAME targets; never delete a route on the blue tunnel (deleting it also deletes
+  the DNS record, which is how this happened). Blue routes are removed in phase 3, together with the old tunnel.
 
 ## Risks and known gaps
 
