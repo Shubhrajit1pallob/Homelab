@@ -1,12 +1,37 @@
+# Homepage look and layout. Reference: https://gethomepage.dev/configs/settings/
 title: Homelab
+description: K3s homelab dashboard
 theme: dark
 color: slate
-headerStyle: clean
+
+# "Slate glass": a dark photo behind blurred, semi-transparent cards. The image is loaded by the VIEWER's browser
+# straight from Unsplash (free license, nothing proxied through the cluster). brightness/saturate/opacity darken and
+# mute it so text stays readable. To change it, swap the URL; keep ?w=2560 so it isn't a huge download.
+background:
+  image: https://images.unsplash.com/photo-1519681393784-d120267933ba?auto=format&fit=crop&w=2560&q=80
+  blur: sm
+  saturate: 60
+  brightness: 50
+  opacity: 60
+cardBlur: md
+
+headerStyle: boxed       # widgets row (cluster/node stats, clock) sits in its own glass box
+statusStyle: dot         # small coloured dot instead of the RUNNING / ERROR pills
+useEqualHeights: true    # every tile in a row is the same height
 hideVersion: true
+target: _blank           # open services in a new tab
+
+# Group order follows this list. Two columns: there are two tiles per group, so they fill the width.
 layout:
   Cluster:
     style: row
-    columns: 3
+    columns: 2
+    icon: mdi-kubernetes
   Apps:
     style: row
-    columns: 3
+    columns: 2
+    icon: mdi-apps
+  Links:
+    style: row
+    columns: 1
+    icon: mdi-link-variant
