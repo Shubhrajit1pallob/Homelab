@@ -1,11 +1,14 @@
-# Static entries only. `siteMonitor` makes the browser-facing tile show up/down from inside the cluster, using
-# in-cluster Service names so it doesn't depend on Cloudflare. Add more tiles here; nothing secret belongs in this file.
+# Static entries only. Add more tiles here; nothing secret belongs in this file.
+# `siteMonitor` is checked by the Homepage pod. Use a PUBLIC URL that isn't behind Cloudflare Access, not an in-cluster
+# Service: ns portfolio is default-deny ingress (apps/portfolio/networkpolicy.yaml), so homepage -> portfolio:8000
+# times out. The public URL also tests the real path (Cloudflare -> tunnel -> Traefik -> site).
+# Don't add siteMonitor to Access-protected hostnames: they answer 302 to the login page.
 - Apps:
     - Portfolio:
         icon: mdi-web
         href: https://shubhrajitpallob.dev
         description: Public site
-        siteMonitor: http://portfolio.portfolio.svc.cluster.local:80
+        siteMonitor: https://shubhrajitpallob.dev
         namespace: portfolio
         app: portfolio
     - n8n:

@@ -97,15 +97,24 @@ spec:
                   value: home.shubhrajitpallob.dev
             periodSeconds: 15
             timeoutSeconds: 5
+          # /app/config must be WRITABLE: at startup Homepage copies any config file it doesn't find (custom.css,
+          # custom.js, ...) from its built-in skeleton into /app/config and exits if it can't (EROFS). So /app/config
+          # is an emptyDir, and only our files are laid over it from the ConfigMap with subPath. subPath mounts don't
+          # live-update, which is fine: the ConfigMap name carries a content hash, so a config change rolls the pod.
+          # The emptyDir also holds Homepage's logs (/app/config/logs).
           volumeMounts:
-            # The ConfigMap is read-only, so Homepage's log directory needs its own writable mount.
             - name: config
               mountPath: /app/config
-            - name: logs
-              mountPath: /app/config/logs
+            - { name: config-files, mountPath: /app/config/settings.yaml, subPath: settings.yaml }
+            - { name: config-files, mountPath: /app/config/kubernetes.yaml, subPath: kubernetes.yaml }
+            - { name: config-files, mountPath: /app/config/services.yaml, subPath: services.yaml }
+            - { name: config-files, mountPath: /app/config/widgets.yaml, subPath: widgets.yaml }
+            - { name: config-files, mountPath: /app/config/bookmarks.yaml, subPath: bookmarks.yaml }
+            - { name: config-files, mountPath: /app/config/docker.yaml, subPath: docker.yaml }
       volumes:
         - name: config
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: config-files
           configMap:
             name: homepage
-        - name: logs
-          emptyDir: {}
