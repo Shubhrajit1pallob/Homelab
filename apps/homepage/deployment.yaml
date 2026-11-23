@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: homepage
+  namespace: homepage
+  labels:
+    app.kubernetes.io/name: homepage
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1 # one replica and a small node: replace in place rather than surge a second pod
+      maxSurge: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: homepage
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: homepage
+    spec:
+      serviceAccountName: homepage
+      # Needed: the Kubernetes widget reads the API with this token.
+      automountServiceAccountToken: true
+      enableServiceLinks: false # Homepage's own env names would otherwise collide with injected service vars
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+
+      # agent-1 is the always-on worker with the most free memory. Preferred, not required: this is a
+      # convenience dashboard, so it may fall back to shubmedia. Never server-1 (tainted).
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: node-role
+                    operator: In
+                    values: ["cloud"]
+
+      containers:
+        - name: homepage
+          # Pinned release (bump this line to upgrade; check the release notes first).
+          image: ghcr.io/gethomepage/homepage:v2.8.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            # Homepage rejects requests whose Host header isn't listed here. Values are public hostnames only.
+            - name: HOMEPAGE_ALLOWED_HOSTS
+              value: "home.shubhrajitpallob.dev"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 320Mi
+          startupProbe:
+            httpGet:
+              path: /api/healthcheck
+              port: http
+            periodSeconds: 5
+            failureThreshold: 24
+          livenessProbe:
+            httpGet:
+              path: /api/healthcheck
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /api/healthcheck
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 5
+          volumeMounts:
+            # The ConfigMap is read-only, so Homepage's log directory needs its own writable mount.
+            - name: config
+              mountPath: /app/config
+            - name: logs
+              mountPath: /app/config/logs
+      volumes:
+        - name: config
+          configMap:
+            name: homepage
+        - name: logs
+          emptyDir: {}

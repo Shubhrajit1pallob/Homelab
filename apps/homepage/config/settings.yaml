@@ -1,0 +1,12 @@
+title: Homelab
+theme: dark
+color: slate
+headerStyle: clean
+hideVersion: true
+layout:
+  Cluster:
+    style: row
+    columns: 3
+  Apps:
+    style: row
+    columns: 3

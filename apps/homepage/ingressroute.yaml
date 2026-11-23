@@ -1,0 +1,34 @@
+# Same convention as apps/n8n and apps/monitoring/prometheus/grafana-route.yaml:
+#   home.shubhrajitpallob.dev  public through the Cloudflare tunnel (plain HTTP on the `web` entrypoint); Cloudflare
+#                              terminates TLS and Cloudflare Access does the login (configured in the dashboard)
+#   websecure                  the same name on Traefik's TLS entrypoint with the wildcard cert (default TLSStore)
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: homepage
+  namespace: homepage
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`home.shubhrajitpallob.dev`)
+      services:
+        - name: homepage
+          port: 3000
+  tls: {}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: homepage-http
+  namespace: homepage
+spec:
+  entryPoints:
+    - web
+  routes:
+    - kind: Rule
+      match: Host(`home.shubhrajitpallob.dev`)
+      services:
+        - name: homepage
+          port: 3000

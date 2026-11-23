@@ -1,0 +1,30 @@
+# Homepage dashboard (gethomepage.dev) at home.shubhrajitpallob.dev. Manifests and config: apps/homepage.
+# Prerequisite: `homepage` must be in the namespaces of clusters/homelab/bootstrap/cluster-in-cluster.yaml AND that
+# file must be re-applied (kubectl apply -f), or the sync fails with `namespace "homepage" is not managed`.
+# Cloudflare side (dashboard, not in this repo): a proxied CNAME home -> <tunnel-id>.cfargotunnel.com and an Access app.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: homepage
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Shubhrajit1pallob/Homelab.git
+    targetRevision: main
+    path: apps/homepage
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: homepage
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

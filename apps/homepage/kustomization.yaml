@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - rbac.yaml
+  - service.yaml
+  - deployment.yaml
+  - ingressroute.yaml
+# Homepage's config files become ONE ConfigMap named `homepage-<hash>`; kustomize rewrites the reference in
+# deployment.yaml, so editing any file under config/ rolls the pod on its own. Non-secret content only: this
+# repo is public (no IPs, tailnet names or API keys here; widget keys would need a SOPS Secret).
+configMapGenerator:
+  - name: homepage
+    namespace: homepage
+    files:
+      - config/settings.yaml
+      - config/kubernetes.yaml
+      - config/services.yaml
+      - config/widgets.yaml
+      - config/bookmarks.yaml
+      - config/docker.yaml

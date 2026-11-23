@@ -1,0 +1,29 @@
+# Static entries only. `siteMonitor` makes the browser-facing tile show up/down from inside the cluster, using
+# in-cluster Service names so it doesn't depend on Cloudflare. Add more tiles here; nothing secret belongs in this file.
+- Apps:
+    - Portfolio:
+        icon: mdi-web
+        href: https://shubhrajitpallob.dev
+        description: Public site
+        siteMonitor: http://portfolio.portfolio.svc.cluster.local:80
+        namespace: portfolio
+        app: portfolio
+    - n8n:
+        icon: n8n.png
+        href: https://n8n.shubhrajitpallob.dev
+        description: Workflows
+        namespace: n8n
+        app: n8n
+- Cluster:
+    - ArgoCD:
+        icon: argo-cd.png
+        href: https://argocd.shubhrajitpallob.dev
+        description: GitOps
+        namespace: argocd
+        app: argocd-server
+    - Grafana:
+        icon: grafana.png
+        href: https://grafana.shubhrajitpallob.dev
+        description: Dashboards
+        namespace: monitoring
+        app: grafana
