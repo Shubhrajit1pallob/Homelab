@@ -68,22 +68,33 @@ spec:
               memory: 128Mi
             limits:
               memory: 320Mi
+          # Every probe sends an allowed Host header. Otherwise the kubelet sends Host: <podIP>:3000, Homepage rejects it
+          # ("Host validation failed"), and the pod never becomes Ready.
           startupProbe:
             httpGet:
               path: /api/healthcheck
               port: http
+              httpHeaders:
+                - name: Host
+                  value: home.shubhrajitpallob.dev
             periodSeconds: 5
             failureThreshold: 24
           livenessProbe:
             httpGet:
               path: /api/healthcheck
               port: http
+              httpHeaders:
+                - name: Host
+                  value: home.shubhrajitpallob.dev
             periodSeconds: 30
             timeoutSeconds: 5
           readinessProbe:
             httpGet:
               path: /api/healthcheck
               port: http
+              httpHeaders:
+                - name: Host
+                  value: home.shubhrajitpallob.dev
             periodSeconds: 15
             timeoutSeconds: 5
           volumeMounts:
