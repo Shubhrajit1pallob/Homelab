@@ -1,0 +1,91 @@
+# Portfolio release checker (pull model).
+#
+# Every 15 minutes (and on manual dispatch) this follows the `latest` tag of
+# ghcr.io/shubhrajit1pallob/portfolio_website. If `latest` is a commit other than the one pinned in
+# apps/portfolio/deployment.yaml, it opens (or updates) one PR, branch `portfolio-release/auto`, that
+# bumps the image tag and APP_VERSION together. Nothing is pushed to main; you merge the PR and ArgoCD
+# deploys it. The logic lives in scripts/portfolio-release-check.sh so it can be tested locally.
+#
+# Repo variables (Settings -> Secrets and variables -> Actions -> Variables):
+#   PORTFOLIO_RELEASE_SCHEDULE = on    turns the 15-minute schedule on. Unset: manual runs only.
+#   PORTFOLIO_RELEASE_HOLD     = true  pauses everything (schedule and manual) without a commit.
+#
+# Manual dispatch must be run from the main branch (the job is skipped on any other ref).
+#
+# Required setting: Settings -> Actions -> General -> Workflow permissions ->
+#   "Allow GitHub Actions to create and approve pull requests" must be ON, or PR creation fails.
+#
+# Keepalive: GitHub disables scheduled workflows in public repos after 60 days without repo activity.
+# The last step re-enables this workflow on scheduled runs; see the note there about how sure that is.
+name: portfolio-release
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Show the change that would be made, open no PR"
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: portfolio-release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    if: >-
+      vars.PORTFOLIO_RELEASE_HOLD != 'true' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' || vars.PORTFOLIO_RELEASE_SCHEDULE == 'on')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write # keepalive only
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CRANE_VERSION: v0.22.1
+      CRANE_SHA256: 0ab7a1d6932a213aed964ce97666c3077fe691c8606413674a8b3e0b9ec4cda0
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install crane (pinned, checksum verified)
+        run: |
+          set -euo pipefail
+          curl -fsSL -o crane.tgz \
+            "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz"
+          echo "${CRANE_SHA256}  crane.tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf crane.tgz -C "$RUNNER_TEMP/bin" crane
+          rm crane.tgz
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Let git push with the workflow token
+        run: gh auth setup-git
+
+      - name: Check for a new portfolio release
+        env:
+          DRY_RUN_INPUT: ${{ github.event.inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [ "$DRY_RUN_INPUT" = "true" ]; then export DRY_RUN=1; fi
+          bash scripts/portfolio-release-check.sh
+
+      # Keepalive. Calling the enable endpoint is what third-party keepalive tools do and claim resets
+      # the 60-day inactivity counter, but GitHub's docs do not confirm it. Merged release PRs (real
+      # commits on main) are the reliable activity; this is belt and braces. A failure is ignored.
+      - name: Keepalive (re-enable this workflow)
+        if: github.event_name == 'schedule'
+        continue-on-error: true
+        env:
+          REPO: ${{ github.repository }}
+        run: gh api -X PUT "repos/${REPO}/actions/workflows/portfolio-release.yml/enable"
